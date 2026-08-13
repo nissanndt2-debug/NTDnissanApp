@@ -78,14 +78,6 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="body-app-backend-python", lifespan=lifespan)
 
-app.add_middleware(
-	CORSMiddleware,
-	allow_origins=[origin.strip() for origin in env.cors_origin.split(",")],
-	allow_credentials=True,
-	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-	allow_headers=["Content-Type", "Authorization", "x-user-role", "x-user-id"],
-)
-
 
 @app.middleware("http")
 async def security_headers_and_auth(request: Request, call_next):
@@ -153,6 +145,22 @@ async def security_headers_and_auth(request: Request, call_next):
 	response.headers["X-XSS-Protection"] = "1; mode=block"
 	response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 	return response
+
+
+# Se registra DESPUES del middleware de arriba a proposito: en Starlette, el
+# ultimo middleware registrado queda como la capa mas externa. Si CORSMiddleware
+# se registrara antes, security_headers_and_auth quedaria por fuera, y sus
+# respuestas cortadas en seco (401 de token vencido, 429 de rate limit) saldrian
+# sin cabecera Access-Control-Allow-Origin — el navegador las bloquea antes de
+# que el codigo de la app llegue a leer el 401, y en la consola solo se ve un
+# error de CORS que no menciona para nada el token.
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=[origin.strip() for origin in env.cors_origin.split(",")],
+	allow_credentials=True,
+	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allow_headers=["Content-Type", "Authorization", "x-user-role", "x-user-id"],
+)
 
 
 app.include_router(auth_router)
