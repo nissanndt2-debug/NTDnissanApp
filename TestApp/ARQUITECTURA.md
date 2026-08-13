@@ -262,8 +262,10 @@ teléfono en modo avión, captura unidades, y observa el contador del badge crec
 al reactivar la red se drena solo.
 
 > `expo-sqlite`, `expo-camera` y `expo-secure-store` funcionan en Expo Go.
-> Si más adelante se añaden notificaciones push nativas hará falta un
-> *development build* (`npx expo prebuild` + EAS).
+> Las notificaciones push (`src/notifications/push.ts`) YA estan implementadas
+> y necesitan justo eso: un *development build* o el APK de EAS, no sirven en
+> Expo Go. Si estas probando con Expo Go, la app funciona igual pero
+> `registerForPushNotificationsAsync()` devuelve `null` en silencio.
 
 ### Sobre la versión de SDK
 

@@ -29,6 +29,7 @@ class Env:
     blob_read_write_token: str | None
     cloudinary_url: str | None
     cloudinary_folder: str
+    expo_access_token: str | None
 
 
 env = Env(
@@ -46,4 +47,8 @@ env = Env(
     # 501 de forma explicita en vez de fallar a medias.
     cloudinary_url=os.getenv("CLOUDINARY_URL"),
     cloudinary_folder=os.getenv("CLOUDINARY_FOLDER", "defect-photos"),
+    # Opcional: sin esto las notificaciones push funcionan igual, solo sin la
+    # capa extra de Expo contra suplantacion. Ver EXPO_ACCESS_TOKEN en Expo
+    # Dashboard -> Account settings -> Access tokens.
+    expo_access_token=os.getenv("EXPO_ACCESS_TOKEN"),
 )

@@ -106,6 +106,22 @@ export const notifications = {
     apiRequest<{ updated: number }>('/notifications/read-all', { method: 'POST', token }),
 };
 
+export const pushTokens = {
+  register: (deviceToken: string, token: string) =>
+    apiRequest<{ ok: boolean }>('/push-tokens/', {
+      method: 'POST',
+      body: { token: deviceToken },
+      token,
+    }),
+
+  unregister: (deviceToken: string, token: string) =>
+    apiRequest<{ ok: boolean }>('/push-tokens/', {
+      method: 'DELETE',
+      body: { token: deviceToken },
+      token,
+    }),
+};
+
 export const providers = {
   // Con barra final: sin ella FastAPI responde 307 y algunos clientes pierden
   // cabeceras o cuerpo al seguir el redirect.

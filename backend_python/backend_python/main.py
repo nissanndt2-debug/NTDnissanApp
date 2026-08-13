@@ -22,6 +22,7 @@ from app.routes.health import router as health_router
 from app.routes.logs import router as logs_router
 from app.routes.notifications import router as notifications_router
 from app.routes.providers import router as providers_router
+from app.routes.push_tokens import router as push_tokens_router
 from app.routes.unit_models import router as unit_models_router
 from app.routes.units import router as units_router
 from app.routes.uploads import router as uploads_router
@@ -174,6 +175,7 @@ app.include_router(dashboard_router)
 app.include_router(notifications_router)
 app.include_router(events_router)
 app.include_router(uploads_router)
+app.include_router(push_tokens_router)
 
 
 @app.get("/")

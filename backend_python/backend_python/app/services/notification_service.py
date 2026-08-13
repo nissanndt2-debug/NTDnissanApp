@@ -11,6 +11,7 @@ from app.realtime.notification_hub import notification_hub
 from app.repositories.notification_repository import notification_repository
 from app.repositories.unit_repository import unit_repository
 from app.repositories.user_repository import user_repository
+from app.services.push_notification_service import push_notification_service
 
 
 logger = logging.getLogger("body_app_backend")
@@ -33,7 +34,18 @@ class NotificationService:
 
         created = await notification_repository.create_many(payload)
         await notification_hub.broadcast_notifications(created)
+        await self._send_push(user_ids, unit_id, notification_type, message)
         return created
+
+    async def _send_push(self, user_ids: list[int], unit_id: int, notification_type: str, message: str) -> None:
+        # Best-effort a proposito: la notificacion ya se creo y ya se mando
+        # por WebSocket antes de llegar aqui. Que Expo este caido o un token
+        # este corrupto no debe tumbar el cambio de estado que disparo todo
+        # esto — el operador se entera de todos modos por la campana.
+        try:
+            await push_notification_service.send_to_users(user_ids, notification_type, message, unit_id)
+        except Exception:
+            logger.exception("Push notification failed for type=%s unitId=%s", notification_type, unit_id)
 
     async def _create_for_role_ids(self, role_ids: list[int], unit_id: int, notification_type: str, message: str, carrier_provider_id: int | None = None):
         unit = await unit_repository.find_by_id(unit_id)
@@ -65,6 +77,7 @@ class NotificationService:
 
         created = await notification_repository.create_many(payload)
         await notification_hub.broadcast_notifications(created)
+        await self._send_push([user["id"] for user in filtered], unit_id, notification_type, message)
         return created
 
     async def notify_unit_reported(self, unit: dict):

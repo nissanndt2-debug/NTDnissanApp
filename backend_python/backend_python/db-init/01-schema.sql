@@ -39,6 +39,21 @@ CREATE INDEX "IX_User_Email" ON "User"(email);
 CREATE INDEX "IX_User_RoleId" ON "User"("roleId");
 CREATE INDEX "IX_User_Plant" ON "User"(plant);
 
+-- Tokens de push (Expo). UNIQUE en el token, no en (userId, token): un token
+-- identifica una instalacion fisica de la app, y en piso de planta varios
+-- operadores comparten tablet. Si el token ya existia con otro dueno, el
+-- upsert reasigna el renglon al usuario que acaba de iniciar sesion.
+CREATE TABLE "PushToken" (
+  id SERIAL PRIMARY KEY,
+  "userId" INT NOT NULL,
+  token VARCHAR(255) NOT NULL UNIQUE,
+  "createdAt" TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
+  "updatedAt" TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
+  CONSTRAINT "FK_PushToken_User" FOREIGN KEY ("userId") REFERENCES "User"(id) ON DELETE CASCADE
+);
+
+CREATE INDEX "IX_PushToken_UserId" ON "PushToken"("userId");
+
 -- Tabla de Tokens de Refresco (Refresh Tokens)
 CREATE TABLE "RefreshToken" (
   id SERIAL PRIMARY KEY,

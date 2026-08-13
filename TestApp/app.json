@@ -43,6 +43,12 @@
         {
           "cameraPermission": "La camara se usa para escanear el VIN y capturar evidencia de defectos."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#C3002F"
+        }
       ]
     ],
     "extra": {
