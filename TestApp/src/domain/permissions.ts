@@ -72,7 +72,7 @@ export const SCREEN_TITLES: Record<ScreenName, string> = {
   index: 'Panel',
   operaciones: 'Operaciones',
   reportar: 'Reportar',
-  gestion: 'Gestion',
+  gestion: 'Gestión',
   recibir: 'Recibir',
   reparar: 'Reparar',
   prioridad: 'Prioridad',
@@ -98,14 +98,14 @@ export const SCREEN_ICONS: Record<ScreenName, LucideIcon> = {
 
 /** Descripcion corta para el hub del admin. */
 export const SCREEN_HINTS: Record<ScreenName, string> = {
-  index: 'Resumen del flujo del dia',
+  index: 'Resumen del flujo del día',
   operaciones: '',
-  reportar: 'Registrar una unidad con dano',
+  reportar: 'Registrar una unidad con daño',
   gestion: 'Nivelar defectos, entregar a Body y liberar',
-  recibir: 'Confirmar recepcion en Body Shop',
+  recibir: 'Confirmar recepción en Body Shop',
   reparar: 'Iniciar y liberar reparaciones',
-  prioridad: 'Ordenar la cola de reparacion',
-  validar: 'Aprobar o rechazar unidades en garantia',
+  prioridad: 'Ordenar la cola de reparación',
+  validar: 'Aprobar o rechazar unidades en garantía',
   aceptar: 'Aceptar o rechazar unidades liberadas',
 };
 

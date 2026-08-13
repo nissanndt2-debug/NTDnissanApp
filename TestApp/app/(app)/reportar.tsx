@@ -214,7 +214,7 @@ export default function ReportarScreen() {
       </View>
 
       {/* 2. El esquema: donde se trabaja */}
-      <ScrollView contentContainerClassName="px-4 pb-40 pt-3">
+      <ScrollView contentContainerClassName="px-4 pb-64 pt-3">
         <Text className="mb-1 text-label uppercase text-muted">
           Toca la parte danada
         </Text>
@@ -303,7 +303,7 @@ export default function ReportarScreen() {
       </ScrollView>
 
       {/* 3. Dock: el guardado nunca se mueve de sitio */}
-      <View className="absolute bottom-0 left-0 right-0 border-t border-line bg-surface px-4 pb-6 pt-3">
+      <View className="absolute bottom-[104px] left-0 right-0 border-t border-line bg-surface px-4 pb-6 pt-3">
         {saved ? (
           <View className="mb-2 flex-row items-center gap-3 rounded-2xl bg-ink px-4 py-3">
             <View className="flex-1">

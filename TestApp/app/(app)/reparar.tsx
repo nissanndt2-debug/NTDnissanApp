@@ -44,7 +44,7 @@ export default function RepararScreen() {
 
   return (
     <Screen title="Reparar" subtitle="Cola y trabajo en proceso">
-      <ScrollView contentContainerClassName="px-4 pb-10">
+      <ScrollView contentContainerClassName="px-4 pb-32">
         <SectionTitle>En reparacion ({inRepair.length})</SectionTitle>
 
         {inRepair.map((unit) => (

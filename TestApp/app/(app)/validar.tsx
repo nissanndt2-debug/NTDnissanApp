@@ -41,7 +41,7 @@ export default function ValidarScreen() {
 
   return (
     <Screen title="Validar" subtitle="Unidades en revision de garantia">
-      <ScrollView contentContainerClassName="px-4 pb-10">
+      <ScrollView contentContainerClassName="px-4 pb-32">
         {units.map((unit) => (
           <View
             key={unit.localId}

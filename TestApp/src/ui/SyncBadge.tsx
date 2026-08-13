@@ -1,16 +1,20 @@
+import { RefreshCw } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
 import { useSync } from '@/sync/SyncProvider';
+import { COLORS } from './theme';
 
 /**
- * Indicador permanente de estado de sincronizacion.
- *
- * Es el componente mas importante de la app en terminos de confianza: el
- * operador necesita saber, sin preguntar a nadie, si lo que capturo ya salio
- * del dispositivo. Tocarlo fuerza un intento de envio.
- *
- * `onDark` lo adapta a la banda oscura del encabezado sin duplicar componente.
+ * Botón permanente de sincronización. Además de mostrar el estado, tocarlo
+ * fuerza un intento de envío. La variante compacta conserva el estado como
+ * un punto sobre el icono para encabezados estrechos.
  */
-export function SyncBadge({ onDark }: { onDark?: boolean }) {
+export function SyncBadge({
+  onDark,
+  compact = false,
+}: {
+  onDark?: boolean;
+  compact?: boolean;
+}) {
   const { online, syncing, pending, syncNow } = useSync();
 
   const state = !online ? 'offline' : pending > 0 ? 'pending' : 'ok';
@@ -46,10 +50,29 @@ export function SyncBadge({ onDark }: { onDark?: boolean }) {
     <Pressable
       onPress={() => void syncNow()}
       hitSlop={8}
-      className={`flex-row items-center gap-2 self-start rounded-full px-3 py-2 ${tone.bg} active:opacity-70`}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. Toca para sincronizar`}
+      className={`relative h-12 flex-row items-center justify-center self-start rounded-full border active:opacity-70 ${
+        compact ? 'w-12 px-0' : 'gap-2 px-3.5'
+      } ${onDark ? 'border-white/15' : 'border-line'} ${tone.bg}`}
     >
-      <View className={`h-2 w-2 rounded-full ${tone.dot}`} />
-      <Text className={`text-xs font-bold ${tone.text}`}>{label}</Text>
+      <RefreshCw
+        color={onDark ? COLORS.white : COLORS.ink}
+        size={19}
+        strokeWidth={2.2}
+      />
+      {compact ? (
+        <View
+          className={`absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 ${
+            onDark ? 'border-ink' : 'border-white'
+          } ${tone.dot}`}
+        />
+      ) : (
+        <>
+          <Text className={`text-xs font-bold ${tone.text}`}>{label}</Text>
+          <View className={`h-2 w-2 rounded-full ${tone.dot}`} />
+        </>
+      )}
     </Pressable>
   );
 }

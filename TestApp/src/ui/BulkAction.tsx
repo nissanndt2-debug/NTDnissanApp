@@ -58,7 +58,7 @@ export function BulkAction({
 
   return (
     <View className="flex-1">
-      <ScrollView contentContainerClassName="px-4 pb-32">
+      <ScrollView contentContainerClassName="px-4 pb-56">
         {header}
 
         {units.length > 0 ? (
@@ -97,7 +97,7 @@ export function BulkAction({
       </ScrollView>
 
       {selected.size > 0 ? (
-        <View className="absolute bottom-0 left-0 right-0 border-t border-line bg-surface px-4 pb-5 pt-3">
+        <View className="absolute bottom-[104px] left-0 right-0 border-t border-line bg-surface px-4 pb-5 pt-3">
           <View className="flex-row items-center gap-3">
             <Text className="flex-1 text-base font-bold text-ink">
               {selected.size} seleccionada{selected.size === 1 ? '' : 's'}

@@ -8,7 +8,7 @@ import { COLORS } from './theme';
  * detras, asi que la misma campana funciona igual en el header oscuro movil y
  * en el navbar del dashboard web sin duplicar estado.
  */
-export function NotificationBell({ onDark }: { onDark?: boolean }) {
+export function NotificationBell({ onDark, size = 22 }: { onDark?: boolean; size?: number }) {
   const unreadCount = useNotificationStore((state) => state.unreadCount);
   const openPanel = useNotificationStore((state) => state.openPanel);
   const color = onDark ? COLORS.white : COLORS.ink;
@@ -22,7 +22,7 @@ export function NotificationBell({ onDark }: { onDark?: boolean }) {
         unreadCount > 0 ? `Notificaciones, ${unreadCount} sin leer` : 'Notificaciones'
       }
     >
-      <Bell color={color} size={22} strokeWidth={2} />
+      <Bell color={color} size={size} strokeWidth={2} />
       {unreadCount > 0 ? (
         <View className="absolute right-1 top-1 h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1">
           <Text className="text-[10px] font-bold text-white">

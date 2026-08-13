@@ -26,7 +26,7 @@ export default function OperacionesScreen() {
 
   return (
     <Screen title="Operaciones" subtitle="Acceso a todas las pantallas del flujo">
-      <ScrollView contentContainerClassName="px-4 pb-10">
+      <ScrollView contentContainerClassName="px-4 pb-32">
         {screens.map((name) => {
           const Icon = SCREEN_ICONS[name];
           return (

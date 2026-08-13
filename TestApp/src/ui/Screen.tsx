@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Image, Text, View } from 'react-native';
+import { Image, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NotificationBell } from './NotificationBell';
 import { SyncBadge } from './SyncBadge';
@@ -19,37 +19,88 @@ export function Screen({
   title,
   subtitle,
   right,
+  centeredHeader = false,
+  centerLogo = false,
+  syncInHeader = false,
   children,
 }: {
   title: string;
   subtitle?: string;
   right?: ReactNode;
+  /** Centra marca y titulo. Se usa en hubs, no en pantallas operativas. */
+  centeredHeader?: boolean;
+  /** Centra solo la marca y mantiene el titulo con alineacion operativa. */
+  centerLogo?: boolean;
+  /** Coloca la sincronizacion junto a notificaciones para encabezados compactos. */
+  syncInHeader?: boolean;
   children: ReactNode;
 }) {
+  const { width } = useWindowDimensions();
+  const compactCenteredHeader = width < 640;
+
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top']}>
-      <View className="bg-ink px-4 pb-3 pt-2">
-        <Image
-          source={require('../../assets/nissan-logo.png')}
-          style={{ height: 14, width: 95 }}
-          resizeMode="contain"
-          accessibilityLabel="Nissan"
-        />
-        <View className="mt-2 flex-row items-start justify-between">
-          <View className="flex-1">
-            <Text className="text-2xl font-bold text-white">{title}</Text>
-            {subtitle ? (
-              <Text className="mt-0.5 text-xs text-white/60">{subtitle}</Text>
+      <View className={`bg-ink px-4 ${centeredHeader ? 'pb-2 pt-3' : 'pb-3 pt-2'}`}>
+        {centeredHeader ? (
+          <>
+            <View className="relative min-h-[44px] flex-row items-center justify-between">
+              <SyncBadge onDark compact={compactCenteredHeader} />
+              <View pointerEvents="none" className="absolute inset-x-0 items-center">
+                <Image
+                  source={require('../../assets/nissan-logo.png')}
+                  style={{ height: 17, width: 118 }}
+                  resizeMode="contain"
+                  accessibilityLabel="Nissan"
+                />
+              </View>
+              <View className="flex-row items-center gap-2">
+                <View className="h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                  <NotificationBell onDark size={24} />
+                </View>
+                {right}
+              </View>
+            </View>
+            <View className="mt-1 items-center">
+              {title ? (
+                <Text className="text-center text-xl font-bold text-white">{title}</Text>
+              ) : null}
+              {subtitle ? (
+                <Text className={`${title ? 'mt-0.5' : ''} text-center text-[11px] text-white/55`}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
+          </>
+        ) : (
+          <>
+            <View className={centerLogo ? 'items-center' : 'items-start'}>
+              <Image
+                source={require('../../assets/nissan-logo.png')}
+                style={{ height: 14, width: 95 }}
+                resizeMode="contain"
+                accessibilityLabel="Nissan"
+              />
+            </View>
+            <View className="mt-2 flex-row items-start justify-between">
+              <View className="flex-1">
+                <Text className="text-2xl font-bold text-white">{title}</Text>
+                {subtitle ? (
+                  <Text className="mt-0.5 text-xs text-white/60">{subtitle}</Text>
+                ) : null}
+              </View>
+              <View className="flex-row items-center gap-1">
+                {syncInHeader ? <SyncBadge onDark compact /> : null}
+                <NotificationBell onDark />
+                {right}
+              </View>
+            </View>
+            {!syncInHeader ? (
+              <View className="mt-2">
+                <SyncBadge onDark />
+              </View>
             ) : null}
-          </View>
-          <View className="flex-row items-center gap-1">
-            <NotificationBell onDark />
-            {right}
-          </View>
-        </View>
-        <View className="mt-2">
-          <SyncBadge onDark />
-        </View>
+          </>
+        )}
       </View>
       {children}
     </SafeAreaView>
