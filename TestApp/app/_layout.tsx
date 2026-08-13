@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '@/auth/AuthProvider';
 import { getDb } from '@/db';
@@ -10,6 +10,7 @@ import { NotificationProvider } from '@/notifications/NotificationProvider';
 import { SyncProvider } from '@/sync/SyncProvider';
 import { NotificationPanel } from '@/ui/NotificationPanel';
 import { NotificationToast } from '@/ui/NotificationToast';
+import { TruckLoader } from '@/ui/TruckLoader';
 import '../global.css';
 
 /**
@@ -46,7 +47,7 @@ export default function RootLayout() {
   if (!dbReady) {
     return (
       <View className="flex-1 items-center justify-center bg-canvas">
-        <ActivityIndicator size="large" color="#C3002F" />
+        <TruckLoader size={132} accessibilityLabel="Preparando NissanNDT" />
       </View>
     );
   }

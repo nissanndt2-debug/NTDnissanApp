@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Body App",
+    "name": "NissanNDT",
     "slug": "body-app-mobile",
     "scheme": "bodyapp",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/nissan-ndt-icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
@@ -17,11 +17,11 @@
     },
     "android": {
       "package": "com.nissan.bodyapp",
+      "icon": "./assets/nissan-ndt-icon.png",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0F1620",
+        "foregroundImage": "./assets/nissan-ndt-adaptive-foreground.png",
+        "monochromeImage": "./assets/nissan-ndt-adaptive-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -31,7 +31,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png",
+      "favicon": "./assets/nissan-ndt-icon.png",
       "bundler": "metro"
     },
     "plugins": [

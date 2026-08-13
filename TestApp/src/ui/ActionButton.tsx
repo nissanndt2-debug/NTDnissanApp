@@ -1,5 +1,5 @@
-import { ActivityIndicator, Pressable, Text } from 'react-native';
-import { COLORS } from './theme';
+import { Pressable, Text } from 'react-native';
+import { TruckLoader } from './TruckLoader';
 
 type Variant = 'primary' | 'success' | 'danger' | 'neutral';
 
@@ -45,7 +45,7 @@ export function ActionButton({
       } ${STYLES[variant]} ${disabled ? 'opacity-30' : ''}`}
     >
       {busy ? (
-        <ActivityIndicator color={variant === 'neutral' ? COLORS.ink : COLORS.white} />
+        <TruckLoader size={compact ? 32 : 38} accessibilityLabel={`${label}: cargando`} />
       ) : (
         <Text className={`text-base font-bold ${TEXT[variant]}`}>{label}</Text>
       )}

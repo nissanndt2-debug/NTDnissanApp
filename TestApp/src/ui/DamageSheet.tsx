@@ -2,7 +2,6 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   Modal,
   Pressable,
@@ -24,6 +23,7 @@ import {
 } from "@/domain/zones";
 import { compressPhoto } from "@/media/photo";
 import { GRADE_BG } from "./theme";
+import { TruckLoader } from "./TruckLoader";
 
 export interface DraftDefect {
   key: string;
@@ -373,7 +373,7 @@ export function DamageSheet({
                       className="mt-3 min-h-[64px] items-center justify-center rounded-2xl bg-primary active:opacity-80"
                     >
                       {busy ? (
-                        <ActivityIndicator color="white" />
+                        <TruckLoader size={48} accessibilityLabel="Procesando foto" />
                       ) : (
                         <Text className="text-lg font-bold text-white">
                           Tomar foto y agregar

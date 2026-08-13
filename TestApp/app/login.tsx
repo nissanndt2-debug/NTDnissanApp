@@ -12,7 +12,6 @@ import {
 } from "lucide-react-native";
 import { useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -27,6 +26,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { auth as authApi } from "@/api/endpoints";
 import { useAuth } from "@/auth/AuthProvider";
 import { ROLE_IDS, type RoleId } from "@/domain/constants";
+import { TruckLoader } from "@/ui/TruckLoader";
 import { COLORS } from "@/ui/theme";
 
 /** Roles con nombre legible: el operador no sabe que es "SCM_QUALITY". */
@@ -402,7 +402,7 @@ export default function LoginScreen() {
                 }}
               >
                 {busy ? (
-                  <ActivityIndicator color={COLORS.white} />
+                  <TruckLoader size={42} accessibilityLabel="Validando acceso" />
                 ) : (
                   <Text className="text-base font-bold text-white">
                     {mode === "sign-in"

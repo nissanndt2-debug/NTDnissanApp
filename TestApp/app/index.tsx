@@ -1,7 +1,8 @@
 import { Redirect } from 'expo-router';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useAuth } from '@/auth/AuthProvider';
 import { ROLE_IDS } from '@/domain/constants';
+import { TruckLoader } from '@/ui/TruckLoader';
 
 /**
  * Puerta de entrada.
@@ -16,7 +17,7 @@ export default function Index() {
   if (isLoading) {
     return (
       <View className="flex-1 items-center justify-center bg-canvas">
-        <ActivityIndicator size="large" color="#C3002F" />
+        <TruckLoader size={132} accessibilityLabel="Cargando sesión" />
       </View>
     );
   }
