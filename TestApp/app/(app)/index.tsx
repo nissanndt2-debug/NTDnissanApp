@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { ChevronRight, Database, LogOut } from 'lucide-react-native';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useAuth } from '@/auth/AuthProvider';
-import { CanRole } from '@/auth/Can';
 import { listByStatus } from '@/data/units';
 import { ROLE_IDS, ROLE_NAME_BY_ID, type RoleId, type UnitStatus } from '@/domain/constants';
 import {
@@ -48,6 +47,8 @@ const MAIN_ACTION: Record<RoleId, { screen: ScreenName; label: string; queue?: U
 export default function PanelScreen() {
   const { user, signOut } = useAuth();
   const roleId = user?.roleId;
+  const { width } = useWindowDimensions();
+  const desktop = Platform.OS === 'web' && width >= 960;
   const myScreens = operationalScreens(roleId);
   const main = roleId ? MAIN_ACTION[roleId] : null;
 
@@ -63,12 +64,11 @@ export default function PanelScreen() {
     },
     initialData: {},
     initialDataUpdatedAt: 0,
-    refetchInterval: 15_000,
   });
 
   const total = PIPELINE.reduce((sum, { status }) => sum + (counts[status] ?? 0), 0);
   const waiting = main?.queue ? (counts[main.queue] ?? 0) : null;
-  const secondary = myScreens.filter((name) => name !== main?.screen);
+  const secondary = [...myScreens.filter((name) => name !== main?.screen), 'perfil' as ScreenName];
   const actionScreens = main ? [main.screen, ...secondary] : secondary;
   const queueShare = waiting != null && total > 0 ? Math.min((waiting / total) * 100, 100) : 0;
   const userContext = `${user?.name ?? ''} · ${roleId ? ROLE_NAME_BY_ID[roleId] : ''}${
@@ -99,7 +99,10 @@ export default function PanelScreen() {
       >
         {/* Resumen superior: equivalente al bloque de balance de la referencia. */}
         <View className="bg-ink px-6 pb-11 pt-3">
-          <View className="mx-auto w-full max-w-[720px]">
+          <View
+            className="mx-auto w-full"
+            style={{ maxWidth: desktop ? 1240 : 720 }}
+          >
             <View className="flex-row items-stretch">
               <View className="flex-1 pr-5">
                 <Text className="text-xs font-medium text-white/55">Unidades activas</Text>
@@ -137,7 +140,10 @@ export default function PanelScreen() {
 
         {/* Gran hoja clara y redondeada, como la zona de categorías. */}
         <View className="-mt-6 min-h-[560px] rounded-t-[40px] bg-canvas px-4 pb-32 pt-8">
-          <View className="mx-auto w-full max-w-[720px]">
+          <View
+            className="mx-auto w-full"
+            style={{ maxWidth: desktop ? 1240 : 720 }}
+          >
             <View className="mb-5 flex-row items-end justify-between px-1">
               <View>
                 <Text className="text-xl font-bold text-ink">Accesos rápidos</Text>
@@ -163,21 +169,26 @@ export default function PanelScreen() {
                     key={name}
                     onPress={() => router.push(`/(app)/${name}` as never)}
                     accessibilityLabel={`${actionTitle}. ${actionHint}`}
-                    className={`min-h-[148px] flex-1 basis-[47%] rounded-[26px] border p-4 active:opacity-80 ${
+                    className={`min-h-[148px] flex-1 rounded-[26px] border p-4 active:opacity-80 ${
                       isMain
                         ? 'border-primary bg-primary'
                         : 'border-line bg-surface active:border-primary'
                     }`}
                     style={
-                      isMain
-                        ? {
+                      {
+                        flexBasis: desktop ? '31.8%' : '47%',
+                        flexGrow: desktop ? 0 : 1,
+                        minHeight: desktop ? 178 : 148,
+                        ...(isMain
+                          ? {
                             shadowColor: COLORS.primary,
                             shadowOffset: { width: 0, height: 8 },
                             shadowOpacity: 0.2,
                             shadowRadius: 14,
                             elevation: 5,
                           }
-                        : undefined
+                          : {}),
+                      }
                     }
                   >
                     <View className="flex-row items-start justify-between">
@@ -234,21 +245,6 @@ export default function PanelScreen() {
               })}
             </View>
 
-            {Platform.OS === 'web' ? (
-              <CanRole roles={[ROLE_IDS.ADMIN]}>
-                <Pressable
-                  onPress={() => router.push('/dashboard')}
-                  className="mb-2 flex-row items-center justify-between rounded-2xl border border-line bg-surface p-4 active:bg-white/70"
-                >
-                  <View>
-                    <Text className="text-base font-bold text-ink">Dashboard de indicadores</Text>
-                    <Text className="mt-0.5 text-xs text-muted">KPIs, Pareto y cuellos de botella</Text>
-                  </View>
-                  <ChevronRight color={COLORS.primary} size={22} strokeWidth={2} />
-                </Pressable>
-              </CanRole>
-            ) : null}
-
             <View className="mb-3 mt-5 flex-row items-end justify-between px-1">
               <View>
                 <Text className="text-xl font-bold text-ink">Flujo del día</Text>
@@ -277,9 +273,13 @@ export default function PanelScreen() {
                     }
                     router.push(`/(app)/${screen}` as never);
                   }}
-                    className={`min-h-[84px] flex-1 basis-[47%] justify-between rounded-2xl border bg-surface p-4 ${
+                    className={`min-h-[84px] flex-1 justify-between rounded-2xl border bg-surface p-4 ${
                       canOpen ? 'border-line active:border-primary' : 'border-transparent'
                     }`}
+                    style={{
+                      flexBasis: desktop ? '23.5%' : '47%',
+                      flexGrow: desktop ? 0 : 1,
+                    }}
                   >
                     <View className="flex-row items-start justify-between">
                       <Text

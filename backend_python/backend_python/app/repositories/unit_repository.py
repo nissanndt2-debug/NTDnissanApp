@@ -155,6 +155,23 @@ class UnitRepository:
             unit_id,
         )
 
+        # La nota de prioridad es una instruccion para Body Shop; guardarla
+        # tambien como evento permite verla en Historial junto con su destino.
+        if note:
+            await execute(
+                'INSERT INTO "UnitEvent" ("unitId", "eventType", "eventData", "performedById", "createdAt") VALUES ($1, $2, $3::jsonb, $4, NOW() AT TIME ZONE \'UTC\')',
+                unit_id,
+                "PRIORITY_UPDATED",
+                json.dumps(
+                    {
+                        "note": note,
+                        "rank": final_rank,
+                        "destination": "BODY_SHOP",
+                    }
+                ),
+                assigned_by_id,
+            )
+
     async def reorder_priority(self, unit_ids: list[int], assigned_by_id: int):
         if not unit_ids:
             return
@@ -375,6 +392,26 @@ class UnitRepository:
             defect_id,
         )
 
+    async def append_defect_photo(self, unit_id: int, defect_id: int, photo_url: str):
+        """Persiste una evidencia sin duplicarla cuando el cliente reintenta."""
+        return await fetchrow(
+            '''
+            UPDATE "UnitDefect"
+            SET
+                "photoUrls" = CASE
+                    WHEN $1 = ANY(COALESCE("photoUrls", ARRAY[]::TEXT[])) THEN COALESCE("photoUrls", ARRAY[]::TEXT[])
+                    ELSE array_append(COALESCE("photoUrls", ARRAY[]::TEXT[]), $2)
+                END,
+                "updatedAt" = NOW() AT TIME ZONE 'UTC'
+            WHERE id = $3 AND "unitId" = $4 AND "isActive" = TRUE
+            RETURNING id
+            ''',
+            photo_url,
+            photo_url,
+            defect_id,
+            unit_id,
+        )
+
     async def find_by_id_with_defects(self, unit_id: int):
         unit = await self.find_by_id(unit_id)
         if not unit:
@@ -440,7 +477,7 @@ class UnitRepository:
             unit_id,
         )
 
-    async def get_defect_stats(self, today_only: bool = False, plant: str | None = None):
+    async def get_defect_stats(self, today_only: bool = False, plant: str | None = None, provider_id: int | None = None):
         query = """
             SELECT dg.code, COUNT(ud.id)::int as count
             FROM "UnitDefect" ud
@@ -454,6 +491,9 @@ class UnitRepository:
         if plant:
             args.append(plant)
             query += f' AND u.plant = ${len(args)}'
+        if provider_id is not None:
+            args.append(provider_id)
+            query += f' AND u."providerId" = ${len(args)}'
         query += ' GROUP BY dg.code'
 
         rows = await fetch(query, *args)
@@ -618,13 +658,30 @@ class UnitRepository:
             decided_by_id,
             unit_id,
         )
+        if note:
+            await execute(
+                'INSERT INTO "UnitEvent" ("unitId", "eventType", "eventData", "performedById", "createdAt") VALUES ($1, $2, $3::jsonb, $4, NOW() AT TIME ZONE \'UTC\')',
+                unit_id,
+                "SCM_DECISION",
+                json.dumps(
+                    {
+                        "note": note,
+                        "decision": decision,
+                        "destination": "SCM",
+                    }
+                ),
+                decided_by_id,
+            )
 
-    async def get_status_stats(self, plant: str | None = None):
+    async def get_status_stats(self, plant: str | None = None, provider_id: int | None = None):
         query = 'SELECT s.name as "statusName", COUNT(u.id)::int as count FROM "UnitStatus" s LEFT JOIN "Unit" u ON u."statusId" = s.id'
         args: list[object] = []
         if plant is not None:
             args.append(plant)
             query += f' AND u.plant = ${len(args)}'
+        if provider_id is not None:
+            args.append(provider_id)
+            query += f' AND u."providerId" = ${len(args)}'
         query += ' GROUP BY s.name HAVING COUNT(u.id) > 0 ORDER BY s.name'
         rows = await fetch(query, *args)
         return {row["statusName"]: row["count"] for row in rows}

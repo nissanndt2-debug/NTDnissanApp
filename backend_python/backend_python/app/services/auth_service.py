@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import uuid
 from passlib.context import CryptContext
 
 from app.config.environment import env
@@ -28,11 +29,13 @@ def _parse_expiration(expires_in: str) -> timedelta:
 class AuthService:
     def _generate_access_token(self, user: dict) -> str:
         payload = {
+            "type": "access",
             "userId": user["id"],
             "email": user["email"],
             "roleId": user["roleId"],
             "providerId": user.get("providerId"),
             "plant": user.get("plant"),
+            "iat": datetime.now(timezone.utc),
             "exp": datetime.now(timezone.utc) + _parse_expiration(env.jwt_expires_in),
         }
         return jwt.encode(payload, env.jwt_secret, algorithm="HS256")
@@ -40,6 +43,7 @@ class AuthService:
     def _generate_refresh_token(self) -> str:
         payload = {
             "type": "refresh",
+            "jti": str(uuid.uuid4()),
             "exp": datetime.now(timezone.utc) + _parse_expiration(env.refresh_token_expires_in),
         }
         return jwt.encode(payload, env.jwt_secret, algorithm="HS256")
@@ -73,6 +77,12 @@ class AuthService:
         }
 
     async def refresh(self, refresh_token: str):
+        try:
+            payload = jwt.decode(refresh_token, env.jwt_secret, algorithms=["HS256"])
+        except jwt.PyJWTError as exc:
+            raise ValueError("Refresh token invalido") from exc
+        if payload.get("type") != "refresh" or not payload.get("jti"):
+            raise ValueError("Refresh token invalido")
         token_data = await refresh_token_repository.find_by_token(refresh_token)
         if not token_data:
             raise ValueError("Refresh token invalido")
@@ -95,7 +105,10 @@ class AuthService:
         return {"token": new_access, "refreshToken": new_refresh}
 
     async def verify_token(self, token: str):
-        return jwt.decode(token, env.jwt_secret, algorithms=["HS256"])
+        payload = jwt.decode(token, env.jwt_secret, algorithms=["HS256"])
+        if payload.get("type") != "access":
+            raise jwt.InvalidTokenError("Invalid token type")
+        return payload
 
     async def get_user_from_token(self, token: str):
         decoded = await self.verify_token(token)
@@ -105,8 +118,8 @@ class AuthService:
         await refresh_token_repository.revoke_by_user_id(user_id)
 
     async def change_password(self, user_id: int, current_password: str, new_password: str):
-        if len(new_password) < MIN_PASSWORD_LENGTH:
-            raise ValueError(f"La nueva contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres")
+        if not isinstance(new_password, str) or len(new_password) < MIN_PASSWORD_LENGTH or len(new_password.encode("utf-8")) > 72:
+            raise ValueError(f"La nueva contraseña debe tener entre {MIN_PASSWORD_LENGTH} y 72 bytes")
 
         user = await user_repository.find_by_id(user_id)
         if not user:

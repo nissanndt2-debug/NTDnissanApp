@@ -1,8 +1,13 @@
-import { getDb, query, queryOne, run } from '@/db';
-import { GRADE_HOURS, type Grade, type UnitStatus, canTransition } from '@/domain/constants';
-import type { Defect, Unit } from '@/domain/types';
-import { categoryOfStoredType, isHourBearing } from '@/domain/zones';
-import { enqueue, newId } from '@/sync/queue';
+import { getDb, query, queryOne, run } from "@/db";
+import {
+  GRADE_HOURS,
+  type Grade,
+  type UnitStatus,
+  canTransition,
+} from "@/domain/constants";
+import type { Defect, Unit } from "@/domain/types";
+import { categoryOfStoredType, isHourBearing } from "@/domain/zones";
+import { enqueue, newId } from "@/sync/queue";
 
 /**
  * Repositorio de unidades.
@@ -31,7 +36,7 @@ interface UnitRow {
   registered_by: string | null;
   created_at: string | null;
   updated_at: string | null;
-  sync_state: Unit['_sync'];
+  sync_state: Unit["_sync"];
 }
 
 interface DefectRow {
@@ -45,7 +50,8 @@ interface DefectRow {
   is_resolved: number;
   photo_urls: string;
   pending_photos: string;
-  sync_state: Unit['_sync'];
+  photo_error: string | null;
+  sync_state: Unit["_sync"];
 }
 
 function toUnit(row: UnitRow, defects: Defect[]): Unit {
@@ -56,14 +62,14 @@ function toUnit(row: UnitRow, defects: Defect[]): Unit {
     market: row.market,
     lane: row.lane,
     statusName: row.status_name,
-    plant: row.plant as Unit['plant'],
+    plant: row.plant as Unit["plant"],
     providerId: row.provider_id,
     isAvailableToday: row.is_available_today === 1,
     estimatedRepairHours: row.estimated_repair_hours,
     estimatedCompletionDate: row.estimated_completion,
     priorityRank: row.priority_rank,
     priorityNote: row.priority_note,
-    scmDecision: row.scm_decision as Unit['scmDecision'],
+    scmDecision: row.scm_decision as Unit["scmDecision"],
     registeredBy: row.registered_by ?? undefined,
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
@@ -84,20 +90,21 @@ function toDefect(row: DefectRow, unitId: number): Defect {
     isResolved: row.is_resolved === 1,
     photoUrls: JSON.parse(row.photo_urls) as string[],
     pendingPhotos: JSON.parse(row.pending_photos) as string[],
+    photoError: row.photo_error,
   };
 }
 
 /** Lee unidades por estado desde la base LOCAL. Nunca falla por falta de red. */
 export async function listByStatus(status: UnitStatus): Promise<Unit[]> {
   const unitRows = await query<UnitRow>(
-    'SELECT * FROM unit WHERE status_name = ? ORDER BY priority_rank IS NULL, priority_rank ASC, created_at DESC',
-    status
+    "SELECT * FROM unit WHERE status_name = ? ORDER BY priority_rank IS NULL, priority_rank ASC, created_at DESC",
+    status,
   );
   if (unitRows.length === 0) return [];
 
   const defectRows = await query<DefectRow>(
-    `SELECT * FROM defect WHERE unit_local_id IN (${unitRows.map(() => '?').join(',')})`,
-    ...unitRows.map((row) => row.local_id)
+    `SELECT * FROM defect WHERE unit_local_id IN (${unitRows.map(() => "?").join(",")})`,
+    ...unitRows.map((row) => row.local_id),
   );
 
   const byUnit = new Map<string, DefectRow[]>();
@@ -110,8 +117,10 @@ export async function listByStatus(status: UnitStatus): Promise<Unit[]> {
   return unitRows.map((row) =>
     toUnit(
       row,
-      (byUnit.get(row.local_id) ?? []).map((defectRow) => toDefect(defectRow, row.id ?? 0))
-    )
+      (byUnit.get(row.local_id) ?? []).map((defectRow) =>
+        toDefect(defectRow, row.id ?? 0),
+      ),
+    ),
   );
 }
 
@@ -151,7 +160,7 @@ export async function createUnit(input: NewUnitInput): Promise<string> {
       input.providerId ?? null,
       input.registeredByName,
       now,
-      now
+      now,
     );
 
     for (const defect of input.defects) {
@@ -166,13 +175,13 @@ export async function createUnit(input: NewUnitInput): Promise<string> {
         defect.zone,
         defect.grade,
         `${defect.type} en ${defect.zone}`,
-        JSON.stringify(defect.photoUri ? [defect.photoUri] : [])
+        JSON.stringify(defect.photoUri ? [defect.photoUri] : []),
       );
     }
   });
 
   // Encolar: primero la unidad, luego sus defectos, luego las fotos.
-  await enqueue('CREATE_UNIT', unitLocalId, {
+  await enqueue("CREATE_UNIT", unitLocalId, {
     vin: input.vin,
     market: input.market,
     lane: input.lane,
@@ -181,12 +190,12 @@ export async function createUnit(input: NewUnitInput): Promise<string> {
   });
 
   const createdDefects = await query<DefectRow>(
-    'SELECT * FROM defect WHERE unit_local_id = ?',
-    unitLocalId
+    "SELECT * FROM defect WHERE unit_local_id = ?",
+    unitLocalId,
   );
 
   for (const defect of createdDefects) {
-    await enqueue('ADD_DEFECT', unitLocalId, {
+    await enqueue("ADD_DEFECT", unitLocalId, {
       localDefectId: defect.local_id,
       defectType: defect.type,
       zone: defect.zone,
@@ -197,7 +206,7 @@ export async function createUnit(input: NewUnitInput): Promise<string> {
 
     const pending = JSON.parse(defect.pending_photos) as string[];
     for (const localUri of pending) {
-      await enqueue('UPLOAD_PHOTO', unitLocalId, {
+      await enqueue("UPLOAD_PHOTO", unitLocalId, {
         defectLocalId: defect.local_id,
         localUri,
       });
@@ -205,6 +214,98 @@ export async function createUnit(input: NewUnitInput): Promise<string> {
   }
 
   return unitLocalId;
+}
+
+/**
+ * Agrega un hallazgo a una unidad ya reportada desde la revisión WWS.
+ *
+ * Igual que la captura inicial, primero queda disponible en SQLite y se
+ * encola para el backend; el operador no tiene que esperar Wi‑Fi para seguir
+ * nivelando las demás unidades.
+ */
+export async function addDefectToUnit(
+  unit: Unit,
+  input: {
+    type: string;
+    zone: string;
+    grade: Grade;
+    registeredById: number;
+    photoUri?: string;
+  },
+): Promise<void> {
+  if (!unit.localId) throw new Error("La unidad no tiene identificador local.");
+
+  const defectLocalId = newId();
+  const description = `${input.type} en ${input.zone}`;
+
+  // Protege la evidencia local frente al pull mientras el defecto y su foto
+  // todavía no existen en el servidor.
+  await run(
+    "UPDATE unit SET sync_state = 'pending', updated_at = ? WHERE local_id = ?",
+    new Date().toISOString(),
+    unit.localId,
+  );
+
+  await run(
+    `INSERT INTO defect (id, local_id, unit_local_id, type, zone, grade, description,
+                         is_resolved, photo_urls, pending_photos, sync_state)
+     VALUES (NULL, ?, ?, ?, ?, ?, ?, 0, '[]', ?, 'pending')`,
+    defectLocalId,
+    unit.localId,
+    input.type,
+    input.zone,
+    input.grade,
+    description,
+    JSON.stringify(input.photoUri ? [input.photoUri] : []),
+  );
+
+  await enqueue("ADD_DEFECT", unit.localId, {
+    localDefectId: defectLocalId,
+    defectType: input.type,
+    zone: input.zone,
+    grade: input.grade,
+    registeredById: input.registeredById,
+    description,
+  });
+
+  if (input.photoUri) {
+    await enqueue("UPLOAD_PHOTO", unit.localId, {
+      defectLocalId,
+      localUri: input.photoUri,
+    });
+  }
+}
+
+/** Reintenta únicamente la evidencia que falló, sin duplicar el defecto. */
+export async function retryDefectPhotoUpload(
+  unit: Unit,
+  defect: Defect,
+): Promise<void> {
+  if (!unit.localId || !defect.localId) {
+    throw new Error("No se puede identificar la evidencia para reintentar.");
+  }
+
+  const photos = defect.pendingPhotos ?? [];
+  if (photos.length === 0) {
+    throw new Error("No hay una foto pendiente para volver a subir.");
+  }
+
+  await run(
+    "UPDATE defect SET photo_error = NULL, sync_state = 'pending' WHERE local_id = ?",
+    defect.localId,
+  );
+  await run(
+    "UPDATE unit SET sync_state = 'pending', updated_at = ? WHERE local_id = ?",
+    new Date().toISOString(),
+    unit.localId,
+  );
+
+  for (const localUri of photos) {
+    await enqueue("UPLOAD_PHOTO", unit.localId, {
+      defectLocalId: defect.localId,
+      localUri,
+    });
+  }
 }
 
 /**
@@ -216,16 +317,19 @@ export async function createUnit(input: NewUnitInput): Promise<string> {
  */
 export async function discardUnit(unitLocalId: string): Promise<boolean> {
   const row = await queryOne<{ id: number | null }>(
-    'SELECT id FROM unit WHERE local_id = ?',
-    unitLocalId
+    "SELECT id FROM unit WHERE local_id = ?",
+    unitLocalId,
   );
   if (!row || row.id != null) return false;
 
   const db = await getDb();
   await db.withTransactionAsync(async () => {
-    await db.runAsync('DELETE FROM outbox WHERE target_id = ?', unitLocalId);
-    await db.runAsync('DELETE FROM defect WHERE unit_local_id = ?', unitLocalId);
-    await db.runAsync('DELETE FROM unit WHERE local_id = ?', unitLocalId);
+    await db.runAsync("DELETE FROM outbox WHERE target_id = ?", unitLocalId);
+    await db.runAsync(
+      "DELETE FROM defect WHERE unit_local_id = ?",
+      unitLocalId,
+    );
+    await db.runAsync("DELETE FROM unit WHERE local_id = ?", unitLocalId);
   });
   return true;
 }
@@ -239,7 +343,7 @@ export async function changeStatus(
   from: UnitStatus,
   to: UnitStatus,
   changedById: number,
-  extra?: { note?: string; estimatedRepairHours?: number }
+  extra?: { note?: string; estimatedRepairHours?: number },
 ): Promise<void> {
   if (!canTransition(from, to)) {
     throw new Error(`Transicion invalida: ${from} -> ${to}`);
@@ -249,14 +353,16 @@ export async function changeStatus(
     "UPDATE unit SET status_name = ?, sync_state = 'pending', updated_at = ? WHERE local_id = ?",
     to,
     new Date().toISOString(),
-    unitLocalId
+    unitLocalId,
   );
 
-  await enqueue('UPDATE_STATUS', unitLocalId, {
+  await enqueue("UPDATE_STATUS", unitLocalId, {
     newStatus: to,
     changedById,
     ...(extra?.note ? { note: extra.note } : {}),
-    ...(extra?.estimatedRepairHours ? { estimatedRepairHours: extra.estimatedRepairHours } : {}),
+    ...(extra?.estimatedRepairHours
+      ? { estimatedRepairHours: extra.estimatedRepairHours }
+      : {}),
   });
 }
 
@@ -264,14 +370,15 @@ export async function changeStatus(
 export async function changeStatusBulk(
   targets: { localId: string; from: UnitStatus }[],
   to: UnitStatus,
-  changedById: number
+  changedById: number,
+  extra?: { note?: string; estimatedRepairHours?: number },
 ): Promise<{ ok: number; skipped: number }> {
   let ok = 0;
   let skipped = 0;
 
   for (const target of targets) {
     try {
-      await changeStatus(target.localId, target.from, to, changedById);
+      await changeStatus(target.localId, target.from, to, changedById, extra);
       ok += 1;
     } catch {
       skipped += 1;
@@ -294,7 +401,7 @@ export async function changeStatusBulk(
  * estimadas de antes.
  */
 export function estimateHours(
-  defects: { grade: Grade; type: string; isResolved?: boolean }[]
+  defects: { grade: Grade; type: string; isResolved?: boolean }[],
 ): number {
   return defects
     .filter((defect) => !defect.isResolved)
@@ -310,18 +417,18 @@ export async function updateDefectGrade(
   unitLocalId: string,
   defect: Defect,
   newGrade: Grade,
-  updatedById: number
+  updatedById: number,
 ): Promise<void> {
   await run(
     "UPDATE defect SET grade = ?, sync_state = 'pending' WHERE local_id = ?",
     newGrade,
-    defect.localId!
+    defect.localId!,
   );
 
   // No se guarda `defect.id` aqui a proposito: si el defecto nacio offline
   // todavia no lo tiene. El motor lo resuelve al drenar, cuando el ADD_DEFECT
   // previo ya paso.
-  await enqueue('UPDATE_DEFECT_GRADE', unitLocalId, {
+  await enqueue("UPDATE_DEFECT_GRADE", unitLocalId, {
     defectLocalId: defect.localId,
     grade: newGrade,
     updatedById,
@@ -335,7 +442,7 @@ export async function updateDefectGrade(
  */
 export async function reorderPriority(
   ordered: Unit[],
-  assignedById: number
+  assignedById: number,
 ): Promise<void> {
   const db = await getDb();
 
@@ -344,26 +451,78 @@ export async function reorderPriority(
       await db.runAsync(
         'UPDATE unit SET "priority_rank" = ? WHERE local_id = ?',
         index + 1,
-        unit.localId!
+        unit.localId!,
       );
     }
   });
 
-  const serverIds = ordered.map((unit) => unit.id).filter((id): id is number => !!id);
+  const serverIds = ordered
+    .map((unit) => unit.id)
+    .filter((id): id is number => !!id);
   if (serverIds.length > 0) {
-    await enqueue('REORDER_PRIORITY', 'queue', { unitIds: serverIds, assignedById });
+    await enqueue("REORDER_PRIORITY", "queue", {
+      unitIds: serverIds,
+      assignedById,
+    });
   }
 }
 
 /** Agrega una unidad a la cola de prioridad al final. */
-export async function addToQueue(unit: Unit, assignedById: number): Promise<void> {
+export async function addToQueue(
+  unit: Unit,
+  assignedById: number,
+): Promise<void> {
   const rows = await query<{ max_rank: number | null }>(
-    'SELECT MAX(priority_rank) as max_rank FROM unit WHERE priority_rank IS NOT NULL'
+    "SELECT MAX(priority_rank) as max_rank FROM unit WHERE priority_rank IS NOT NULL",
   );
   const rank = (rows[0]?.max_rank ?? 0) + 1;
 
-  await run('UPDATE unit SET priority_rank = ? WHERE local_id = ?', rank, unit.localId!);
-  await enqueue('UPDATE_PRIORITY', unit.localId!, { rank, assignedById });
+  await run(
+    "UPDATE unit SET priority_rank = ? WHERE local_id = ?",
+    rank,
+    unit.localId!,
+  );
+  await enqueue("UPDATE_PRIORITY", unit.localId!, { rank, assignedById });
+}
+
+/** Guarda una nota operativa sin alterar la posición actual de la cola. */
+export async function updatePriorityNote(
+  unit: Unit,
+  note: string,
+  assignedById: number,
+): Promise<void> {
+  await run(
+    "UPDATE unit SET priority_note = ?, sync_state = 'pending', updated_at = ? WHERE local_id = ?",
+    note.trim() || null,
+    new Date().toISOString(),
+    unit.localId!,
+  );
+  await enqueue("UPDATE_PRIORITY", unit.localId!, {
+    note: note.trim() || undefined,
+    rank: unit.priorityRank ?? undefined,
+    assignedById,
+  });
+}
+
+/** Ajusta manualmente la estimación de una reparación ya iniciada. */
+export async function updateEstimatedRepairHours(
+  unit: Unit,
+  estimatedRepairHours: number,
+  changedById: number,
+): Promise<void> {
+  if (!Number.isFinite(estimatedRepairHours) || estimatedRepairHours <= 0) {
+    throw new Error("La estimación debe ser mayor a cero.");
+  }
+  await run(
+    "UPDATE unit SET estimated_repair_hours = ?, sync_state = 'pending', updated_at = ? WHERE local_id = ?",
+    estimatedRepairHours,
+    new Date().toISOString(),
+    unit.localId!,
+  );
+  await enqueue("UPDATE_ESTIMATED_TIME", unit.localId!, {
+    estimatedRepairHours,
+    updatedById: changedById,
+  });
 }
 
 /**
@@ -381,8 +540,8 @@ export async function upsertFromServer(serverUnits: Unit[]): Promise<void> {
   await db.withTransactionAsync(async () => {
     for (const unit of serverUnits) {
       const byServerId = await db.getFirstAsync<{ local_id: string }>(
-        'SELECT local_id FROM unit WHERE id = ?',
-        unit.id
+        "SELECT local_id FROM unit WHERE id = ?",
+        unit.id,
       );
 
       // Fallback: una unidad creada offline todavia no tiene id, pero su VIN
@@ -390,8 +549,8 @@ export async function upsertFromServer(serverUnits: Unit[]): Promise<void> {
       const byVin = byServerId
         ? null
         : await db.getFirstAsync<{ local_id: string }>(
-            'SELECT local_id FROM unit WHERE vin = ? AND id IS NULL',
-            unit.vin
+            "SELECT local_id FROM unit WHERE vin = ? AND id IS NULL",
+            unit.vin,
           );
 
       const localId = byServerId?.local_id ?? byVin?.local_id ?? newId();
@@ -424,13 +583,13 @@ export async function upsertFromServer(serverUnits: Unit[]): Promise<void> {
         unit.priorityNote ?? null,
         unit.registeredBy ?? null,
         unit.createdAt ?? null,
-        unit.updatedAt ?? null
+        unit.updatedAt ?? null,
       );
 
       for (const defect of unit.defects ?? []) {
         const defectByServerId = await db.getFirstAsync<{ local_id: string }>(
-          'SELECT local_id FROM defect WHERE id = ?',
-          defect.id
+          "SELECT local_id FROM defect WHERE id = ?",
+          defect.id,
         );
 
         // Mismo problema que con las unidades: un defecto capturado offline ya
@@ -444,11 +603,13 @@ export async function upsertFromServer(serverUnits: Unit[]): Promise<void> {
                LIMIT 1`,
               localId,
               defect.type,
-              defect.zone
+              defect.zone,
             );
 
         const defectLocalId =
-          defectByServerId?.local_id ?? defectByShape?.local_id ?? `srv-${defect.id}`;
+          defectByServerId?.local_id ??
+          defectByShape?.local_id ??
+          `srv-${defect.id}`;
 
         await db.runAsync(
           `INSERT INTO defect (id, local_id, unit_local_id, type, zone, grade, description,
@@ -468,7 +629,7 @@ export async function upsertFromServer(serverUnits: Unit[]): Promise<void> {
           defect.grade,
           defect.description ?? null,
           defect.isResolved ? 1 : 0,
-          JSON.stringify(defect.photoUrls ?? [])
+          JSON.stringify(defect.photoUrls ?? []),
         );
       }
     }

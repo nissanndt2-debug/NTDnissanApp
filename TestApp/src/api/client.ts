@@ -1,4 +1,5 @@
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 /**
  * Cliente HTTP unico. Deliberadamente delgado: la logica de reintento NO vive
@@ -12,36 +13,42 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly retriable: boolean
+    readonly retriable: boolean,
   ) {
     super(message);
-    this.name = 'ApiError';
+    this.name = "ApiError";
   }
 }
 
 export class NetworkError extends Error {
   readonly retriable = true;
-  constructor(message = 'Sin conexion con el servidor') {
+  constructor(message = "Sin conexion con el servidor") {
     super(message);
-    this.name = 'NetworkError';
+    this.name = "NetworkError";
   }
 }
 
 export function getApiBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+  if (fromEnv) return fromEnv.replace(/\/+$/, "");
 
-  const fromConfig = (Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined)
-    ?.apiBaseUrl;
-  return (fromConfig ?? 'http://localhost:3001').replace(/\/+$/, '');
+  const fromConfig = (
+    Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined
+  )?.apiBaseUrl;
+  return (fromConfig ?? "http://localhost:3001").replace(/\/+$/, "");
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   token?: string | null;
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+interface DownloadOptions {
+  token?: string | null;
+  timeoutMs?: number;
 }
 
 interface Envelope<T> {
@@ -61,20 +68,26 @@ function isRetriable(status: number): boolean {
 
 export async function apiRequest<T>(
   path: string,
-  { method = 'GET', body, token, timeoutMs = DEFAULT_TIMEOUT_MS, signal }: RequestOptions = {}
+  {
+    method = "GET",
+    body,
+    token,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal,
+  }: RequestOptions = {},
 ): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   if (signal) {
-    signal.addEventListener('abort', () => controller.abort(), { once: true });
+    signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
 
   try {
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method,
       headers: {
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(body ? { "Content-Type": "application/json" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -93,7 +106,7 @@ export async function apiRequest<T>(
       throw new ApiError(
         `Respuesta no valida del servidor (${response.status})`,
         response.status,
-        false
+        false,
       );
     }
 
@@ -101,7 +114,7 @@ export async function apiRequest<T>(
       throw new ApiError(
         parsed.detail ?? `Error ${response.status}`,
         response.status,
-        isRetriable(response.status)
+        isRetriable(response.status),
       );
     }
 
@@ -109,6 +122,47 @@ export async function apiRequest<T>(
   } catch (error) {
     if (error instanceof ApiError) throw error;
     // AbortError o fallo de DNS/socket: tratable como falta de red.
+    throw new NetworkError();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export interface UploadedPhoto {
+  /** URL HTTPS estable que se persiste en UnitDefect.photoUrls. */
+  url: string;
+  /** Identificador de Cloudinary para trazabilidad; la URL permite borrado seguro. */
+  publicId?: string;
+}
+
+/** Descarga autenticada de reportes binarios (por ejemplo, Excel). */
+export async function apiDownload(
+  path: string,
+  { token, timeoutMs = DEFAULT_TIMEOUT_MS }: DownloadOptions = {},
+): Promise<Blob> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      let detail = `Error ${response.status}`;
+      try {
+        detail = (JSON.parse(text) as { detail?: string }).detail ?? detail;
+      } catch {
+        // Una respuesta binaria/HTML de error no tiene detalle legible.
+      }
+      throw new ApiError(detail, response.status, isRetriable(response.status));
+    }
+
+    return await response.blob();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new NetworkError();
   } finally {
     clearTimeout(timeout);
@@ -133,33 +187,76 @@ export function getUploadUrl(): string {
 export async function apiUploadPhoto(
   localUri: string,
   token: string | null,
-  timeoutMs = 30_000
-): Promise<string> {
+  defectLocalId: string,
+  uploadKey: string,
+  timeoutMs = 30_000,
+): Promise<UploadedPhoto> {
   const uploadUrl = getUploadUrl();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const form = new FormData();
-    form.append('file', {
-      uri: localUri,
-      name: `defecto-${Date.now()}.jpg`,
-      type: 'image/jpeg',
-    } as unknown as Blob);
+    const filename = `defecto-${uploadKey}.jpg`;
+
+    // React Native acepta el descriptor {uri, name, type}; en web ese objeto
+    // no es un Blob y el navegador no adjunta ningún archivo. Convertir la URI
+    // a Blob evita que la subida falle solo en escritorio.
+    if (Platform.OS === "web") {
+      const source = await fetch(localUri);
+      if (!source.ok) {
+        throw new NetworkError("No se pudo leer la foto seleccionada");
+      }
+      const raw = await source.blob();
+      const image = new Blob([raw], { type: raw.type || "image/jpeg" });
+      form.append("file", image, filename);
+    } else {
+      form.append("file", {
+        uri: localUri,
+        name: filename,
+        type: "image/jpeg",
+      } as unknown as Blob);
+    }
+    form.append("defectLocalId", defectLocalId);
+    // Misma clave durante reintentos: Cloudinary sobrescribe el mismo objeto
+    // en vez de dejar copias huérfanas si la red cae después de subirlo.
+    form.append("uploadKey", uploadKey);
 
     const response = await fetch(uploadUrl, {
-      method: 'POST',
+      method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       body: form,
       signal: controller.signal,
     });
 
-    if (!response.ok) {
-      throw new ApiError(`Fallo la subida (${response.status})`, response.status, isRetriable(response.status));
+    const text = await response.text();
+    let parsed: Envelope<UploadedPhoto>;
+    try {
+      parsed = text
+        ? (JSON.parse(text) as Envelope<UploadedPhoto>)
+        : ({} as Envelope<UploadedPhoto>);
+    } catch {
+      throw new ApiError(
+        `Respuesta no válida al subir la foto (${response.status})`,
+        response.status,
+        false,
+      );
     }
-
-    const parsed = (await response.json()) as Envelope<{ url: string }>;
-    return parsed.data.url;
+    if (!response.ok) {
+      throw new ApiError(
+        parsed.detail ?? `Falló la subida de la foto (${response.status})`,
+        response.status,
+        isRetriable(response.status),
+      );
+    }
+    if (!parsed.data?.url?.startsWith("https://")) {
+      throw new ApiError(
+        "El servidor no devolvió una URL segura de la foto",
+        502,
+        true,
+      );
+    }
+    return parsed.data;
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new NetworkError();

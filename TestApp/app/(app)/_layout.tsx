@@ -1,6 +1,6 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Redirect, Tabs } from 'expo-router';
-import { Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Redirect, router, Tabs } from 'expo-router';
+import { Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/AuthProvider';
 import {
@@ -10,10 +10,12 @@ import {
   tabsForRole,
   type ScreenName,
 } from '@/domain/permissions';
+import { ROLE_IDS } from '@/domain/constants';
 import { COLORS } from '@/ui/theme';
 
 interface FloatingTabBarProps extends BottomTabBarProps {
   visibleTabs: ScreenName[];
+  canViewDashboard?: boolean;
 }
 
 /**
@@ -114,15 +116,117 @@ function FloatingTabBar({
   );
 }
 
+/**
+ * Navegación de escritorio: las mismas rutas y permisos que la barra móvil,
+ * pero siempre visibles para que el operador no tenga que abrir un menú ni
+ * perder espacio vertical en una pantalla ancha.
+ */
+function DesktopSidebar({
+  state,
+  navigation,
+  visibleTabs,
+  canViewDashboard = false,
+}: FloatingTabBarProps) {
+  return (
+    <View
+      className="absolute bottom-0 left-0 top-0 w-[252px] border-r border-white/10 bg-ink px-4 pb-6 pt-10"
+      style={{ boxShadow: '2px 0 18px rgba(15, 22, 32, 0.12)' }}
+    >
+      <Text className="text-[11px] font-bold uppercase tracking-[2px] text-white/45">
+        Body App
+      </Text>
+      <Text className="mt-2 text-2xl font-bold text-white">Operaciones</Text>
+      <Text className="mt-1 text-xs leading-5 text-white/55">
+        Selecciona una etapa del flujo.
+      </Text>
+
+      <View className="mt-8 gap-2">
+        {visibleTabs.map((name) => {
+          const route = state.routes.find((item) => item.name === name);
+          if (!route) return null;
+
+          const focused = state.routes[state.index]?.key === route.key;
+          const Icon = SCREEN_ICONS[name];
+          const label = SCREEN_TITLES[name];
+
+          return (
+            <Pressable
+              key={route.key}
+              onPress={() => {
+                const event = navigation.emit({
+                  type: 'tabPress',
+                  target: route.key,
+                  canPreventDefault: true,
+                });
+                if (!focused && !event.defaultPrevented) {
+                  navigation.navigate(route.name, route.params);
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={label}
+              accessibilityState={focused ? { selected: true } : {}}
+              className={`min-h-[56px] flex-row items-center gap-3 rounded-2xl px-4 active:opacity-80 ${
+                focused ? 'bg-primary' : 'bg-white/0'
+              }`}
+            >
+              <Icon color={COLORS.white} size={21} strokeWidth={focused ? 2.5 : 2} />
+              <Text className="flex-1 text-sm font-bold text-white">{label}</Text>
+              {focused ? <View className="h-2 w-2 rounded-full bg-white" /> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {canViewDashboard ? (
+        <Pressable
+          onPress={() => router.push('/dashboard')}
+          accessibilityRole="button"
+          accessibilityLabel="Ver KPIs y dashboard"
+          className="mt-5 min-h-[72px] flex-row items-center gap-3 rounded-2xl border border-primary/35 bg-primary/10 px-4 active:bg-primary"
+        >
+          <View className="h-10 w-10 items-center justify-center rounded-xl bg-primary">
+            <SCREEN_ICONS.index color={COLORS.white} size={20} strokeWidth={2.2} />
+          </View>
+          <View className="flex-1">
+            <Text className="text-sm font-bold text-white">Ver KPIs</Text>
+            <Text className="mt-0.5 text-[11px] text-white/60">Dashboard ejecutivo</Text>
+          </View>
+        </Pressable>
+      ) : null}
+
+      <Pressable
+        onPress={() => router.push('/(app)/perfil')}
+        accessibilityRole="button"
+        accessibilityLabel="Abrir perfil y seguridad"
+        className="mt-3 min-h-[56px] flex-row items-center gap-3 rounded-2xl px-4 active:bg-white/10"
+      >
+        <SCREEN_ICONS.perfil color={COLORS.white} size={20} strokeWidth={2.1} />
+        <Text className="flex-1 text-sm font-bold text-white">Perfil y seguridad</Text>
+      </Pressable>
+
+      <View className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-3">
+        <Text className="text-[10px] font-bold uppercase tracking-wide text-white/45">
+          Operación en línea
+        </Text>
+        <Text className="mt-1 text-xs leading-5 text-white/70">
+          Los cambios se sincronizan con el mismo flujo de la app móvil.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 /** Pestañas visibles y ordenadas según el rol autenticado. */
 export default function AppLayout() {
   const { token, user } = useAuth();
+  const { width } = useWindowDimensions();
 
   if (!token) return <Redirect href="/login" />;
 
   const roleId = user?.roleId;
   const visibleTabs = tabsForRole(roleId);
   const visible = new Set<ScreenName>(visibleTabs);
+  const desktopWeb = Platform.OS === 'web' && width >= 960;
 
   const screen = (name: ScreenName) => (
     <Tabs.Screen
@@ -146,17 +250,31 @@ export default function AppLayout() {
     'prioridad',
     'validar',
     'aceptar',
+    'historial',
+    'control',
+    'perfil',
   ];
 
   return (
     <Tabs
       tabBar={(props) => (
-        <FloatingTabBar {...props} visibleTabs={visibleTabs} />
+        desktopWeb ? (
+          <DesktopSidebar
+            {...props}
+            visibleTabs={visibleTabs}
+            canViewDashboard={roleId === ROLE_IDS.ADMIN}
+          />
+        ) : (
+          <FloatingTabBar {...props} visibleTabs={visibleTabs} />
+        )
       )}
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        sceneStyle: { backgroundColor: COLORS.canvas },
+        sceneStyle: {
+          backgroundColor: COLORS.canvas,
+          marginLeft: desktopWeb ? 252 : 0,
+        },
       }}
     >
       {all.map(screen)}

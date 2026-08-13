@@ -15,5 +15,13 @@ class ProviderRepository:
     async def delete(self, provider_id: int) -> None:
         await execute('DELETE FROM "Provider" WHERE id = $1', provider_id)
 
+    async def update(self, provider_id: int, name: str, code: str | None = None):
+        return await fetchrow(
+            'UPDATE "Provider" SET name = $1, code = $2, "updatedAt" = NOW() AT TIME ZONE \'UTC\' WHERE id = $3 RETURNING id, name, code, "createdAt", "updatedAt"',
+            name,
+            code,
+            provider_id,
+        )
+
 
 provider_repository = ProviderRepository()

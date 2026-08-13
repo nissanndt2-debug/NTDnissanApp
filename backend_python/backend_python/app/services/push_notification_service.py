@@ -97,7 +97,7 @@ class PushNotificationService:
                     # Errores no fatales para el token (limite de tasa, mensaje
                     # invalido, etc.) — se registran para poder depurarlos, pero
                     # no se borra el token: podria volver a funcionar despues.
-                    logger.warning("Expo push error for token %s: %s", sent["to"], ticket.get("message"))
+                    logger.warning("Expo push error: %s", ticket.get("message"))
 
         if stale_tokens:
             await push_token_repository.delete_tokens(stale_tokens)

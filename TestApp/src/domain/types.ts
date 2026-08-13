@@ -1,4 +1,10 @@
-import type { Grade, Plant, RoleId, ScmDecision, UnitStatus } from './constants';
+import type {
+  Grade,
+  Plant,
+  RoleId,
+  ScmDecision,
+  UnitStatus,
+} from "./constants";
 
 export interface User {
   id: number;
@@ -22,6 +28,8 @@ export interface Defect {
   photoUrls: string[];
   /** rutas locales de fotos aun no subidas */
   pendingPhotos?: string[];
+  /** Último error al subir evidencia; se conserva la foto para reintentar. */
+  photoError?: string | null;
 }
 
 export interface Unit {
@@ -47,7 +55,7 @@ export interface Unit {
   _sync: SyncState;
 }
 
-export type SyncState = 'synced' | 'pending' | 'failed';
+export type SyncState = "synced" | "pending" | "failed";
 
 /** Una mutacion encolada mientras no hay red. */
 export interface QueuedMutation {
@@ -63,17 +71,74 @@ export interface QueuedMutation {
 }
 
 export type MutationKind =
-  | 'CREATE_UNIT'
-  | 'ADD_DEFECT'
-  | 'UPDATE_STATUS'
-  | 'UPDATE_PRIORITY'
-  | 'UPDATE_ESTIMATED_TIME'
-  | 'UPDATE_DEFECT_GRADE'
-  | 'REORDER_PRIORITY'
-  | 'UPLOAD_PHOTO';
+  | "CREATE_UNIT"
+  | "ADD_DEFECT"
+  | "UPDATE_STATUS"
+  | "UPDATE_PRIORITY"
+  | "UPDATE_ESTIMATED_TIME"
+  | "UPDATE_DEFECT_GRADE"
+  | "REORDER_PRIORITY"
+  | "UPLOAD_PHOTO";
 
 export interface AuthSession {
   user: User;
   token: string;
   refreshToken: string;
+}
+
+export interface Provider {
+  id: number;
+  name: string;
+  code?: string | null;
+}
+
+export interface UnitModel {
+  id: number;
+  code: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface ManagedUser {
+  id: number;
+  email: string;
+  name: string;
+  roleId: RoleId;
+  roleName?: string;
+  providerId?: number | null;
+  providerName?: string | null;
+  plant?: Plant | null;
+}
+
+export interface HistoryRow {
+  unitId: number;
+  vin: string;
+  market?: string;
+  lane?: string;
+  newStatus: UnitStatus;
+  previousStatus?: UnitStatus | null;
+  changedAt: string;
+  changedByName?: string | null;
+  registeredByName?: string | null;
+  note?: string | null;
+  /** Tipo de evento cuando la fila no corresponde a un cambio de estatus. */
+  eventType?: "STATUS_CHANGE" | "PRIORITY_UPDATED" | "SCM_DECISION" | string;
+  /** Destino explicito que se guarda junto con comentarios operativos. */
+  noteDestination?: string | null;
+  photoUrls?: string[];
+}
+
+export interface DeletionRequest {
+  id: number;
+  unitId: number;
+  requestedById: number;
+  requestedByName?: string | null;
+  vin: string;
+  market?: string;
+  lane?: string;
+  plant?: Plant | null;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  decisionNote?: string | null;
+  requestedAt?: string;
 }

@@ -4,6 +4,7 @@ import logging
 import re
 import sys
 import uuid
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from app.config.database import close_db, init_db
 from app.config.environment import env
-from app.middleware.auth import auth_middleware
+from app.middleware.auth import auth_middleware, authenticate_access_token
 from app.middleware.rate_limit import check_api_rate_limit
 from app.realtime.notification_hub import notification_hub
 from app.services.notification_service import notification_service
@@ -30,6 +31,9 @@ from app.routes.users import router as users_router
 
 
 logger = logging.getLogger("body_app_backend")
+MAX_JSON_REQUEST_BYTES = 1 * 1024 * 1024
+MAX_UPLOAD_REQUEST_BYTES = 9 * 1024 * 1024
+WS_TOKEN_PROTOCOL_PREFIX = "bodyapp.jwt."
 
 
 def _sanitize_error_detail(value: object) -> str:
@@ -45,6 +49,30 @@ def _sanitize_error_detail(value: object) -> str:
 	for pattern, repl in replacements:
 		message = re.sub(pattern, repl, message)
 	return message
+
+
+def _cors_origins() -> list[str]:
+	origins = [origin.strip().rstrip("/") for origin in env.cors_origin.split(",") if origin.strip()]
+	if env.node_env.lower() != "production":
+		return origins
+	if not origins or "*" in origins:
+		raise RuntimeError("CORS_ORIGIN debe contener origenes HTTPS explicitos en produccion")
+	for origin in origins:
+		parsed = urlparse(origin)
+		if parsed.scheme != "https" or not parsed.netloc or parsed.path not in {"", "/"}:
+			raise RuntimeError("CORS_ORIGIN contiene un origen de produccion invalido")
+	return origins
+
+
+def _websocket_token(websocket: WebSocket) -> tuple[str | None, str | None]:
+	"""Lee el JWT del subprotocolo, nunca de la URL que suelen registrar proxies."""
+	for offered in websocket.headers.get("sec-websocket-protocol", "").split(","):
+		candidate = offered.strip()
+		if candidate.startswith(WS_TOKEN_PROTOCOL_PREFIX):
+			token = candidate[len(WS_TOKEN_PROTOCOL_PREFIX) :]
+			if token:
+				return token, candidate
+	return None, None
 
 
 if sys.platform.startswith("win"):
@@ -83,6 +111,15 @@ app = FastAPI(title="body-app-backend-python", lifespan=lifespan)
 @app.middleware("http")
 async def security_headers_and_auth(request: Request, call_next):
 	request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+	content_length = request.headers.get("content-length")
+	if content_length and request.method in {"POST", "PUT", "PATCH"}:
+		try:
+			declared_size = int(content_length)
+		except ValueError:
+			return JSONResponse(status_code=400, content={"ok": False, "error": "Invalid Content-Length", "requestId": request_id})
+		max_size = MAX_UPLOAD_REQUEST_BYTES if request.url.path == "/uploads/photo" else MAX_JSON_REQUEST_BYTES
+		if declared_size < 0 or declared_size > max_size:
+			return JSONResponse(status_code=413, content={"ok": False, "error": "Request body too large", "requestId": request_id})
 	try:
 		check_api_rate_limit(request, is_development=env.node_env == "development")
 	except HTTPException as exc:
@@ -143,8 +180,12 @@ async def security_headers_and_auth(request: Request, call_next):
 	response.headers["X-Request-Id"] = request_id
 	response.headers["X-Content-Type-Options"] = "nosniff"
 	response.headers["X-Frame-Options"] = "DENY"
-	response.headers["X-XSS-Protection"] = "1; mode=block"
+	response.headers["X-XSS-Protection"] = "0"
 	response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+	response.headers["Content-Security-Policy"] = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+	response.headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+	if env.node_env.lower() == "production":
+		response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 	return response
 
 
@@ -157,10 +198,19 @@ async def security_headers_and_auth(request: Request, call_next):
 # error de CORS que no menciona para nada el token.
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=[origin.strip() for origin in env.cors_origin.split(",")],
+	allow_origins=_cors_origins(),
+	# En desarrollo Expo puede abrirse desde la IP LAN de la PC y cambiar de
+	# puerto. Sin este patrón el navegador bloquea el multipart antes de que la
+	# app alcance a mostrar el error real de Cloudinary. Producción sigue usando
+	# exclusivamente la lista explícita de CORS_ORIGIN.
+	allow_origin_regex=(
+		r"^https?://(?:localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(?::\d+)?$"
+		if env.node_env.lower() == "development"
+		else None
+	),
 	allow_credentials=True,
 	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-	allow_headers=["Content-Type", "Authorization", "x-user-role", "x-user-id"],
+	allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -184,18 +234,23 @@ async def root():
 
 
 @app.websocket("/ws/notifications")
-async def notifications_ws(websocket: WebSocket, token: str):
-	# Lightweight WS compatibility endpoint.
-	import jwt
-
+async def notifications_ws(websocket: WebSocket):
+	# Los tokens no viajan en query strings: suelen terminar en historiales,
+	# logs de proxies y herramientas de analitica.
+	token, selected_protocol = _websocket_token(websocket)
+	if not token:
+		await websocket.close(code=1008, reason="Authentication required")
+		return
 	try:
-		payload = jwt.decode(token, env.jwt_secret, algorithms=["HS256"])
-		user_id = int(payload["userId"])
+		user = await authenticate_access_token(token)
+		user_id = int(user["userId"])
+		role_id = int(user.get("roleId") or 0)
+		plant = user.get("plant")
 	except Exception:
 		await websocket.close(code=1008, reason="Invalid token")
 		return
 
-	await notification_hub.connect(user_id, websocket)
+	await notification_hub.connect(user_id, websocket, role_id, plant, selected_protocol)
 	try:
 		await websocket.send_json({"type": "connected"})
 		while True:

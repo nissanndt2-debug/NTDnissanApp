@@ -15,9 +15,20 @@ docker compose up --build
 Levanta backend + Postgres (con el schema ya cargado desde `db-init/`) —
 todo vive en la red interna de docker-compose. Usuarios de prueba en
 `db-init/`: `admin@nissan.com`, `wws@nissan.com`, etc., contrasena
-`admin123` para todos. Para probar la subida de fotos en local, define
+`admin123` para todos. Son datos exclusivamente locales: nunca publiques esa
+base ni ejecutes sus datos semilla en producción. Para probar la subida de fotos en local, define
 `CLOUDINARY_URL` en tu entorno antes de `docker compose up` (Cloudinary es
 gratis y no necesita emulador).
+
+Para habilitar fotos con Cloudinary en Docker, agrega a `.env.local` (archivo ignorado por Git):
+
+```env
+CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
+CLOUDINARY_FOLDER=defect-photos
+```
+
+Después reinicia con `docker compose up --build`. Sin la credencial, la API
+responde `501` y la app conserva la evidencia local para reintentarla.
 
 Para desplegar en Azure de verdad: ver **[DEPLOY.md](./DEPLOY.md)**.
 
@@ -179,8 +190,8 @@ backend_Python/
 ### Tiempo real
 | Protocolo | Endpoint | Descripcion |
 |-----------|----------|-------------|
-| SSE | `GET /events` | Stream de eventos de unidades (STATUS_CHANGED, DEFECT_UPDATED, etc.) |
-| WebSocket | `ws://host/ws/notifications?token=<JWT>` | Notificaciones push por userId |
+| SSE | `GET /events/units` | Stream para integraciones que envíen `Authorization: Bearer <JWT>` |
+| WebSocket | `wss://host/ws/notifications` | Cambios de unidad y notificaciones; el JWT viaja en el subprotocolo `bodyapp.jwt.<JWT>`, no en la URL |
 
 ---
 

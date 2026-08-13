@@ -1,8 +1,8 @@
-import { ApiError, NetworkError, apiUploadPhoto } from '@/api/client';
-import { units } from '@/api/endpoints';
-import { getDb, query, run } from '@/db';
-import type { QueuedMutation } from '@/domain/types';
-import { discard, markFailure, readyMutations, removeMutation } from './queue';
+import { ApiError, NetworkError, apiUploadPhoto } from "@/api/client";
+import { units } from "@/api/endpoints";
+import { getDb, query, run } from "@/db";
+import type { QueuedMutation } from "@/domain/types";
+import { discard, markFailure, readyMutations, removeMutation } from "./queue";
 
 /**
  * Motor de drenado del outbox.
@@ -34,8 +34,8 @@ async function resolveServerId(localId: string): Promise<number | null> {
   if (Number.isInteger(asNumber) && asNumber > 0) return asNumber;
 
   const rows = await query<{ id: number | null }>(
-    'SELECT id FROM unit WHERE local_id = ?',
-    localId
+    "SELECT id FROM unit WHERE local_id = ?",
+    localId,
   );
   return rows[0]?.id ?? null;
 }
@@ -51,15 +51,15 @@ async function resolveServerId(localId: string): Promise<number | null> {
 async function matchServerDefectId(
   unit: { defects?: { id: number; type: string; zone: string }[] },
   defectType: string,
-  zone: string
+  zone: string,
 ): Promise<number | null> {
   const candidates = (unit.defects ?? []).filter(
-    (defect) => defect.type === defectType && defect.zone === zone
+    (defect) => defect.type === defectType && defect.zone === zone,
   );
   if (candidates.length === 0) return null;
 
   const taken = await query<{ id: number }>(
-    'SELECT id FROM defect WHERE id IS NOT NULL'
+    "SELECT id FROM defect WHERE id IS NOT NULL",
   );
   const takenIds = new Set(taken.map((row) => row.id));
 
@@ -73,26 +73,57 @@ async function applyServerId(localId: string, serverId: number): Promise<void> {
     await db.runAsync(
       "UPDATE unit SET id = ?, sync_state = 'synced' WHERE local_id = ?",
       serverId,
-      localId
+      localId,
     );
   });
+}
+
+async function syncUnitPhotoState(unitLocalId: string): Promise<void> {
+  const rows = await query<{ pending: number }>(
+    `SELECT COUNT(*) as pending
+     FROM defect
+     WHERE unit_local_id = ? AND pending_photos != '[]'`,
+    unitLocalId,
+  );
+  await run(
+    "UPDATE unit SET sync_state = ? WHERE local_id = ?",
+    (rows[0]?.pending ?? 0) > 0 ? "pending" : "synced",
+    unitLocalId,
+  );
+}
+
+async function recordPhotoFailure(
+  defectLocalId: string | undefined,
+  reason: string,
+): Promise<void> {
+  if (!defectLocalId) return;
+  await run(
+    "UPDATE defect SET photo_error = ?, sync_state = 'failed' WHERE local_id = ?",
+    reason.slice(0, 400),
+    defectLocalId,
+  );
+  await run(
+    `UPDATE unit SET sync_state = 'pending'
+     WHERE local_id = (SELECT unit_local_id FROM defect WHERE local_id = ?)`,
+    defectLocalId,
+  );
 }
 
 async function handle(mutation: QueuedMutation, token: string): Promise<void> {
   const payload = JSON.parse(mutation.payload) as Record<string, unknown>;
 
   switch (mutation.kind) {
-    case 'CREATE_UNIT': {
+    case "CREATE_UNIT": {
       const created = await units.create(payload as never, token);
       await applyServerId(mutation.targetId, created.id);
       return;
     }
 
-    case 'ADD_DEFECT': {
+    case "ADD_DEFECT": {
       const unitId = await resolveServerId(mutation.targetId);
       if (!unitId) {
         // La unidad aun no existe en servidor: reintentar despues, no descartar.
-        throw new NetworkError('Unidad padre aun sin id de servidor');
+        throw new NetworkError("Unidad padre aun sin id de servidor");
       }
 
       const localDefectId = payload.localDefectId as string;
@@ -104,58 +135,97 @@ async function handle(mutation: QueuedMutation, token: string): Promise<void> {
       const serverId = await matchServerDefectId(
         updated,
         payload.defectType as string,
-        payload.zone as string
+        payload.zone as string,
       );
 
       await run(
         "UPDATE defect SET id = ?, sync_state = 'synced' WHERE local_id = ?",
         serverId,
-        localDefectId
+        localDefectId,
       );
+      await syncUnitPhotoState(mutation.targetId);
       return;
     }
 
-    case 'UPLOAD_PHOTO': {
-      const url = await apiUploadPhoto(payload.localUri as string, token);
+    case "UPLOAD_PHOTO": {
       const defectLocalId = payload.defectLocalId as string;
-      const rows = await query<{ photo_urls: string }>(
-        'SELECT photo_urls FROM defect WHERE local_id = ?',
-        defectLocalId
+      const unitId = await resolveServerId(mutation.targetId);
+      if (!unitId)
+        throw new NetworkError("Unidad padre aun sin id de servidor");
+
+      const rows = await query<{
+        id: number | null;
+        photo_urls: string;
+        pending_photos: string;
+      }>(
+        "SELECT id, photo_urls, pending_photos FROM defect WHERE local_id = ?",
+        defectLocalId,
       );
-      const urls = JSON.parse(rows[0]?.photo_urls ?? '[]') as string[];
+      const defectId = rows[0]?.id ?? null;
+      if (!defectId) throw new NetworkError("Defecto aun sin id de servidor");
+
+      // La misma mutation id es la clave idempotente de Cloudinary: si el
+      // POST de adjuntar falla después de la subida, el reintento reutiliza la
+      // imagen en vez de crear otra referencia que nunca se mostrará.
+      const uploaded = await apiUploadPhoto(
+        payload.localUri as string,
+        token,
+        defectLocalId,
+        mutation.id,
+      );
+      await units.addDefectPhoto(
+        unitId,
+        defectId,
+        { url: uploaded.url },
+        token,
+      );
+
+      const urls = JSON.parse(rows[0]?.photo_urls ?? "[]") as string[];
+      const pending = JSON.parse(rows[0]?.pending_photos ?? "[]") as string[];
       await run(
-        "UPDATE defect SET photo_urls = ?, pending_photos = '[]' WHERE local_id = ?",
-        JSON.stringify([...urls, url]),
-        defectLocalId
+        "UPDATE defect SET photo_urls = ?, pending_photos = ?, photo_error = NULL, sync_state = 'synced' WHERE local_id = ?",
+        JSON.stringify([...new Set([...urls, uploaded.url])]),
+        JSON.stringify(
+          pending.filter((uri) => uri !== (payload.localUri as string)),
+        ),
+        defectLocalId,
+      );
+      await syncUnitPhotoState(mutation.targetId);
+      return;
+    }
+
+    case "UPDATE_STATUS": {
+      const unitId = await resolveServerId(mutation.targetId);
+      if (!unitId)
+        throw new NetworkError("Unidad padre aun sin id de servidor");
+      await units.updateStatus(unitId, payload as never, token);
+      await run(
+        "UPDATE unit SET sync_state = 'synced' WHERE local_id = ?",
+        mutation.targetId,
       );
       return;
     }
 
-    case 'UPDATE_STATUS': {
+    case "UPDATE_PRIORITY": {
       const unitId = await resolveServerId(mutation.targetId);
-      if (!unitId) throw new NetworkError('Unidad padre aun sin id de servidor');
-      await units.updateStatus(unitId, payload as never, token);
-      await run("UPDATE unit SET sync_state = 'synced' WHERE local_id = ?", mutation.targetId);
-      return;
-    }
-
-    case 'UPDATE_PRIORITY': {
-      const unitId = await resolveServerId(mutation.targetId);
-      if (!unitId) throw new NetworkError('Unidad padre aun sin id de servidor');
+      if (!unitId)
+        throw new NetworkError("Unidad padre aun sin id de servidor");
       await units.updatePriority(unitId, payload as never, token);
       return;
     }
 
-    case 'UPDATE_ESTIMATED_TIME': {
+    case "UPDATE_ESTIMATED_TIME": {
       const unitId = await resolveServerId(mutation.targetId);
-      if (!unitId) throw new NetworkError('Unidad padre aun sin id de servidor');
+      if (!unitId)
+        throw new NetworkError("Unidad padre aun sin id de servidor");
       await units.updateEstimatedTime(unitId, payload as never, token);
       return;
     }
 
-    case 'UPDATE_DEFECT_GRADE': {
+    case "UPDATE_DEFECT_GRADE": {
       const unitId = await resolveServerId(mutation.targetId);
-      if (!unitId) throw new NetworkError('Unidad padre aun sin id de servidor');
+      if (!unitId)
+        throw new NetworkError("Unidad padre aun sin id de servidor");
 
       const defectLocalId = payload.defectLocalId as string;
 
@@ -163,36 +233,39 @@ async function handle(mutation: QueuedMutation, token: string): Promise<void> {
       // nacio offline, su ADD_DEFECT va antes en la cola (FIFO) y ya le
       // asigno un id de servidor cuando llegamos a este punto.
       const rows = await query<{ id: number | null }>(
-        'SELECT id FROM defect WHERE local_id = ?',
-        defectLocalId
+        "SELECT id FROM defect WHERE local_id = ?",
+        defectLocalId,
       );
       const defectId = rows[0]?.id ?? null;
 
       if (!defectId) {
         // Su ADD_DEFECT todavia no pasa. Reintentar, no descartar.
-        throw new NetworkError('Defecto aun sin id de servidor');
+        throw new NetworkError("Defecto aun sin id de servidor");
       }
 
       await units.updateDefectGrade(
         unitId,
         defectId,
-        { grade: payload.grade as string, updatedById: payload.updatedById as number },
-        token
+        {
+          grade: payload.grade as string,
+          updatedById: payload.updatedById as number,
+        },
+        token,
       );
       await run(
         "UPDATE defect SET sync_state = 'synced' WHERE local_id = ?",
-        defectLocalId
+        defectLocalId,
       );
       return;
     }
 
-    case 'REORDER_PRIORITY': {
+    case "REORDER_PRIORITY": {
       const ids = payload.unitIds as number[];
       // Solo se reordenan unidades que ya existen en servidor.
       if (!ids || ids.length === 0) return;
       await units.reorderPriority(
         { unitIds: ids, assignedById: payload.assignedById as number },
-        token
+        token,
       );
       return;
     }
@@ -214,6 +287,13 @@ export async function drain(token: string | null): Promise<DrainResult> {
         await removeMutation(mutation.id);
         result.sent += 1;
       } catch (error) {
+        const payload = JSON.parse(mutation.payload) as Record<string, unknown>;
+        if (mutation.kind === "UPLOAD_PHOTO") {
+          await recordPhotoFailure(
+            payload.defectLocalId as string | undefined,
+            error instanceof Error ? error.message : "No se pudo subir la foto",
+          );
+        }
         if (error instanceof NetworkError) {
           // Sin red: detener el lote. El orden FIFO debe preservarse.
           await markFailure(mutation.id, mutation.attempts, error.message);
@@ -231,7 +311,7 @@ export async function drain(token: string | null): Promise<DrainResult> {
         await markFailure(
           mutation.id,
           mutation.attempts,
-          error instanceof Error ? error.message : 'error desconocido'
+          error instanceof Error ? error.message : "error desconocido",
         );
         result.failed += 1;
       }

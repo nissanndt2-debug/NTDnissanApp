@@ -18,12 +18,16 @@ def _build_log_filters(filters: dict, user: dict | None):
     merged = dict(filters or {})
 
     # Carrier users can only view their provider data.
-    if user and user.get("roleId") == ROLE_IDS["CARRIER"] and user.get("providerId"):
-        merged["providerId"] = int(user["providerId"])
+    if user and user.get("roleId") == ROLE_IDS["CARRIER"]:
+        if user.get("providerId"):
+            merged["providerId"] = int(user["providerId"])
+        else:
+            # Una cuenta Carrier mal configurada no obtiene historial global.
+            merged["providerId"] = -1
 
-    # Keep frontend-selected plant when provided; otherwise default to user plant.
+    # La planta no es un filtro que pueda ampliar un usuario no administrador.
     user_plant = get_user_plant_filter(user)
-    if user_plant and not merged.get("plant"):
+    if user_plant:
         merged["plant"] = user_plant
 
     return merged

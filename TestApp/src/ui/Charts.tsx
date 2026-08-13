@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import Svg, { Circle, G } from 'react-native-svg';
+import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Polyline, Stop } from 'react-native-svg';
 import { COLORS } from './theme';
 
 /**
@@ -31,13 +31,26 @@ export function KpiCard({
     good: 'text-synced',
   }[tone];
 
+  const accentBar = {
+    neutral: 'bg-primary',
+    warn: 'bg-v2',
+    bad: 'bg-v1',
+    good: 'bg-synced',
+  }[tone];
+
   return (
-    <View className="min-w-[180px] flex-1 rounded-2xl bg-surface p-5">
+    <View
+      className="min-w-[180px] flex-1 overflow-hidden rounded-3xl border border-line bg-surface p-5"
+      style={{ boxShadow: '0 1px 2px rgba(15, 22, 32, 0.05)' }}
+    >
+      <View className={`absolute left-0 right-0 top-0 h-1 ${accentBar}`} />
       <Text className="text-xs font-semibold uppercase tracking-wide text-muted">
         {label}
       </Text>
-      <Text className={`mt-2 text-4xl font-bold ${accent}`}>{value}</Text>
-      {hint ? <Text className="mt-1 text-xs text-muted">{hint}</Text> : null}
+      <Text selectable className={`mt-2 text-4xl font-bold ${accent}`} style={{ fontVariant: ['tabular-nums'] }}>
+        {value}
+      </Text>
+      {hint ? <Text selectable className="mt-1 text-xs text-muted">{hint}</Text> : null}
     </View>
   );
 }
@@ -184,6 +197,67 @@ export function DonutChart({
   );
 }
 
+/**
+ * Curva compacta para tendencias de tiempo. Mantiene la estética ligera del
+ * dashboard sin introducir una librería de gráficas distinta para web/móvil.
+ */
+export function TrendLineChart({
+  points,
+  color = COLORS.primary,
+}: {
+  points: { label: string; value: number }[];
+  color?: string;
+}) {
+  const chartWidth = 640;
+  const chartHeight = 220;
+  const paddingX = 10;
+  const paddingY = 18;
+  const max = Math.max(1, ...points.map((point) => point.value));
+  const spanX = chartWidth - paddingX * 2;
+  const spanY = chartHeight - paddingY * 2;
+  const coordinates = points.map((point, index) => ({
+    x: paddingX + (points.length <= 1 ? spanX / 2 : (index / (points.length - 1)) * spanX),
+    y: paddingY + spanY - (point.value / max) * spanY,
+  }));
+  const polyline = coordinates.map((point) => `${point.x},${point.y}`).join(' ');
+  const area = coordinates.length
+    ? `M ${coordinates[0].x} ${chartHeight - paddingY} L ${coordinates.map((point) => `${point.x} ${point.y}`).join(' L ')} L ${coordinates[coordinates.length - 1].x} ${chartHeight - paddingY} Z`
+    : '';
+  const featured = coordinates.length ? coordinates[Math.floor(coordinates.length * 0.62)] : null;
+
+  if (points.length === 0) {
+    return <Text className="py-14 text-center text-sm text-muted">Sin tendencia disponible todavía.</Text>;
+  }
+
+  return (
+    <View>
+      <Svg width="100%" height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
+        <Defs>
+          <LinearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color} stopOpacity="0.20" />
+            <Stop offset="1" stopColor={color} stopOpacity="0" />
+          </LinearGradient>
+        </Defs>
+        {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
+          <Line
+            key={ratio}
+            x1={paddingX}
+            x2={chartWidth - paddingX}
+            y1={paddingY + spanY * ratio}
+            y2={paddingY + spanY * ratio}
+            stroke={COLORS.line}
+            strokeOpacity={0.7}
+            strokeDasharray="4 7"
+          />
+        ))}
+        <Path d={area} fill="url(#trendFill)" />
+        <Polyline points={polyline} fill="none" stroke={color} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+        {featured ? <Circle cx={featured.x} cy={featured.y} r={6} fill={color} stroke={COLORS.surface} strokeWidth={4} /> : null}
+      </Svg>
+    </View>
+  );
+}
+
 export function Panel({
   title,
   subtitle,
@@ -196,7 +270,10 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <View className={`rounded-2xl bg-surface p-5 ${className ?? ''}`}>
+    <View
+      className={`rounded-3xl border border-line bg-surface p-5 ${className ?? ''}`}
+      style={{ boxShadow: '0 1px 2px rgba(15, 22, 32, 0.05)' }}
+    >
       <Text className="text-base font-bold text-ink">{title}</Text>
       {subtitle ? <Text className="mb-3 mt-0.5 text-xs text-muted">{subtitle}</Text> : null}
       <View className={subtitle ? '' : 'mt-3'}>{children}</View>

@@ -1,4 +1,5 @@
 from app.config.database import fetch
+from app.constants.index import MAX_LOG_PAGE_SIZE
 
 
 class StatusHistoryRepository:
@@ -50,7 +51,7 @@ class StatusHistoryRepository:
         sort = "alpha" if filters.get("sort") == "alpha" else "date"
         order = filters.get("order") if filters.get("order") in ("asc", "desc") else "desc"
         order_by = f'u.vin {order.upper()}, e."createdAt" DESC' if sort == "alpha" else f'e."createdAt" {order.upper()}'
-        limit = int(filters.get("limit") or 200)
+        limit = max(1, min(int(filters.get("limit") or 200), MAX_LOG_PAGE_SIZE))
         where_sql = f"AND {' AND '.join(where)}" if where else ""
 
         # Parity with TS: fetch all status history rows for units initially REPORTED or SENT in filtered range.
@@ -71,13 +72,15 @@ class StatusHistoryRepository:
           e."eventData"->>'previousStatus' as "previousStatus",
           e."eventData"->>'newStatus' as "newStatus",
           e."eventData"->>'note' as "note",
+          e."eventData"->>'destination' as "noteDestination",
+          e."eventType" as "eventType",
           cb.name as "changedByName",
           registeredBy.name as "registeredByName"
         FROM "UnitEvent" e
         JOIN "Unit" u ON u.id = e."unitId"
         JOIN "User" cb ON cb.id = e."performedById"
         JOIN "User" registeredBy ON registeredBy.id = u."registeredById"
-        WHERE e."eventType" = 'STATUS_CHANGE'
+        WHERE e."eventType" IN ('STATUS_CHANGE', 'PRIORITY_UPDATED', 'SCM_DECISION')
           AND e."unitId" IN (SELECT "unitId" FROM filtered_units)
         ORDER BY {order_by}
         LIMIT {limit}

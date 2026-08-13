@@ -1,8 +1,10 @@
 import asyncio
 import json
+import uuid
 from collections.abc import AsyncIterator
 
 from app.constants.index import SSE_KEEPALIVE_MS
+from app.realtime.notification_hub import notification_hub
 
 
 class UnitEventStream:
@@ -25,12 +27,16 @@ class UnitEventStream:
             self._subscribers.discard(subscriber)
 
     async def broadcast(self, payload: dict) -> None:
-        message = f"event: unit-update\\ndata: {json.dumps(payload)}\\n\\n"
-        payload_plant = payload.get("plant")
+        event_payload = {**payload, "eventId": payload.get("eventId") or str(uuid.uuid4())}
+        message = f"event: unit-update\\ndata: {json.dumps(event_payload)}\\n\\n"
+        payload_plant = event_payload.get("plant")
         for queue, subscriber_plant in list(self._subscribers):
             if payload_plant and subscriber_plant and payload_plant != subscriber_plant:
                 continue
             await queue.put(message)
+        # SSE se conserva para consumidores externos ya existentes. La app
+        # usa el WebSocket configurado, para no depender de dos conexiones.
+        await notification_hub.broadcast_unit_update(event_payload)
 
 
 unit_event_stream = UnitEventStream()

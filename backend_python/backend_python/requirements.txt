@@ -1,11 +1,15 @@
-fastapi==0.116.1
+fastapi==0.141.1
+# Pin explícito: FastAPI acepta un rango amplio y Starlette 1.6 corrige los
+# avisos de seguridad de la serie 0.47 instalada previamente.
+starlette==1.6.0
 uvicorn[standard]==0.35.0
-python-dotenv==1.1.1
+python-dotenv==1.2.2
 psycopg[binary]==3.2.13
 psycopg-pool==3.2.4
-PyJWT==2.10.1
+PyJWT==2.13.0
 passlib[bcrypt]==1.7.4
 bcrypt<4.1
-python-multipart==0.0.20
+python-multipart==0.0.32
 openpyxl==3.1.5
 cloudinary==1.44.1
+Pillow==12.3.0

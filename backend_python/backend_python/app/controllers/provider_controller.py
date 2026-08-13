@@ -21,3 +21,11 @@ async def delete_provider(provider_id: int):
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+async def update_provider(provider_id: int, body: dict):
+    try:
+        result = await provider_service.update_provider(provider_id, body)
+        return {"ok": True, "data": result}
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

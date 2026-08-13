@@ -128,6 +128,13 @@ class UnitService:
         await self._emit_event(unit_id, "DEFECT_UPDATED")
         return await unit_repository.find_by_id_with_defects(unit_id)
 
+    async def attach_defect_photo(self, unit_id: int, defect_id: int, photo_url: str):
+        defect = await unit_repository.append_defect_photo(unit_id, defect_id, photo_url)
+        if not defect:
+            return None
+        await self._emit_event(unit_id, "DEFECT_UPDATED")
+        return await unit_repository.find_by_id_with_defects(unit_id)
+
     async def delete_defect_photo(self, unit_id: int, defect_id: int):
         photo_urls = await unit_repository.get_defect_photo_urls(unit_id, defect_id)
         if not photo_urls:
@@ -150,8 +157,8 @@ class UnitService:
         await self._emit_event(unit_id, "DEFECT_UPDATED")
         return await unit_repository.find_by_id_with_defects(unit_id)
 
-    async def get_defect_stats(self, today_only=False, plant=None):
-        return await unit_repository.get_defect_stats(today_only, plant)
+    async def get_defect_stats(self, today_only=False, plant=None, provider_id=None):
+        return await unit_repository.get_defect_stats(today_only, plant, provider_id)
 
     async def get_today_units(self, provider_id=None, plant=None):
         return await unit_repository.get_today_units(provider_id, plant)
@@ -160,8 +167,8 @@ class UnitService:
         await unit_repository.set_scm_decision(unit_id, decision, note, decided_by_id)
         return await self._emit_event(unit_id, "SCM_DECISION")
 
-    async def get_status_stats(self, plant=None):
-        return await unit_repository.get_status_stats(plant)
+    async def get_status_stats(self, plant=None, provider_id=None):
+        return await unit_repository.get_status_stats(plant, provider_id)
 
     async def update_estimated_repair_time(self, unit_id, estimated_repair_hours, updated_by_id):
         await unit_repository.update_estimated_repair_time(unit_id, estimated_repair_hours, updated_by_id)
@@ -172,6 +179,10 @@ class UnitService:
 
     async def get_unit_with_defects(self, unit_id):
         return await unit_repository.find_by_id_with_defects(unit_id)
+
+    async def get_unit(self, unit_id: int):
+        """Metadatos para autorizar una unidad antes de mutarla o exponerla."""
+        return await unit_repository.find_by_id(unit_id)
 
     async def archive_unit(self, unit_id, archived_by_id):
         await unit_repository.archive_unit(unit_id, archived_by_id)
@@ -187,7 +198,16 @@ class UnitService:
         return await unit_repository.get_archivable_units(plant)
 
     async def reset_daily_queue_partial(self, executed_by_id: int | None = None):
-        return await unit_repository.reset_daily_queue_partial(executed_by_id)
+        result = await unit_repository.reset_daily_queue_partial(executed_by_id)
+        if result["updatedCount"] > 0:
+            await unit_event_stream.broadcast(
+                {
+                    "unitId": 0,
+                    "event": "DAILY_QUEUE_RESET",
+                    "createdAt": result["executedAt"],
+                }
+            )
+        return result
 
 
 unit_service = UnitService()

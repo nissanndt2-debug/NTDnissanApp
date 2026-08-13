@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from app.controllers import unit_controller
 from app.controllers import unit_deletion_request_controller
-from app.middleware.auth import require_any_role, require_auth, require_role
+from app.middleware.auth import require_any_role, require_auth
 from app.middleware.role_guard import validate_override_permission
 
 router = APIRouter(prefix="/units", tags=["units"])
@@ -10,32 +10,28 @@ router = APIRouter(prefix="/units", tags=["units"])
 
 @router.get("/")
 async def list_units(
-    request: Request,
+    user: dict = Depends(require_auth),
     limit: int = Query(default=50, ge=1, le=100),
     status: str | None = None,
 ):
-    user = getattr(request.state, "user", None)
     return await unit_controller.list_units(user, limit, status)
 
 
 @router.get("/stats/defects")
-async def get_defect_stats(request: Request, filter: str | None = None):
-    user = getattr(request.state, "user", None)
+async def get_defect_stats(user: dict = Depends(require_auth), filter: str | None = None):
     return await unit_controller.get_defect_stats(user, filter == "today")
 
 
 @router.get("/stats/by-status")
-async def get_status_stats(request: Request):
-    user = getattr(request.state, "user", None)
+async def get_status_stats(user: dict = Depends(require_auth)):
     return await unit_controller.get_status_stats(user)
 
 
 @router.get("/in-repair")
 async def get_units_in_repair(
-    request: Request,
+    user: dict = Depends(require_auth),
     include_archived: bool = Query(default=False, alias="includeArchived"),
 ):
-    user = getattr(request.state, "user", None)
     return await unit_controller.get_units_in_repair(user, include_archived)
 
 
@@ -52,7 +48,7 @@ async def get_archivable_units(user: dict = Depends(require_auth)):
 @router.get("/deletion-requests")
 async def list_deletion_requests(
     status: str | None = None,
-    user: dict = Depends(require_role("SCM")),
+    user: dict = Depends(require_any_role(["SCM", "ADMIN"])),
 ):
     return await unit_deletion_request_controller.list_unit_deletion_requests(user, status)
 
@@ -61,7 +57,7 @@ async def list_deletion_requests(
 async def decide_deletion_request(
     request_id: int,
     body: dict,
-    user: dict = Depends(require_role("SCM")),
+    user: dict = Depends(require_any_role(["SCM", "ADMIN"])),
 ):
     return await unit_deletion_request_controller.decide_unit_deletion_request(user, request_id, body)
 
@@ -73,12 +69,11 @@ async def reset_daily_queue_partial(user: dict = Depends(require_auth)):
 
 @router.get("/{unit_id}")
 async def get_unit_by_id(unit_id: int, user: dict = Depends(require_auth)):
-    return await unit_controller.get_unit_by_id(unit_id)
+    return await unit_controller.get_unit_by_id(user, unit_id)
 
 
 @router.post("/")
-async def create_unit(request: Request, body: dict):
-    user = getattr(request.state, "user", None)
+async def create_unit(body: dict, user: dict = Depends(require_auth)):
     return await unit_controller.create_unit(user, body)
 
 
@@ -92,13 +87,13 @@ async def request_unit_deletion(
 
 
 @router.put("/{unit_id}/status")
-async def update_unit_status(unit_id: int, body: dict):
-    return await unit_controller.update_unit_status(unit_id, body)
+async def update_unit_status(unit_id: int, body: dict, user: dict = Depends(require_auth)):
+    return await unit_controller.update_unit_status(user, unit_id, body)
 
 
 @router.put("/{unit_id}/priority")
-async def update_unit_priority(unit_id: int, body: dict):
-    return await unit_controller.update_unit_priority(unit_id, body)
+async def update_unit_priority(unit_id: int, body: dict, user: dict = Depends(require_auth)):
+    return await unit_controller.update_unit_priority(user, unit_id, body)
 
 
 @router.put("/{unit_id}/estimated-time")
@@ -107,24 +102,42 @@ async def update_estimated_repair_time(unit_id: int, body: dict):
 
 
 @router.put("/{unit_id}/scm-decision")
-async def set_scm_decision(unit_id: int, body: dict):
-    return await unit_controller.set_scm_decision(unit_id, body)
+async def set_scm_decision(
+    unit_id: int,
+    body: dict,
+    user: dict = Depends(require_any_role(["SCM", "ADMIN"])),
+):
+    return await unit_controller.set_scm_decision(user, unit_id, body)
 
 
 @router.put("/{unit_id}/archive")
-async def archive_unit(unit_id: int, body: dict):
-    return await unit_controller.archive_unit(unit_id, body)
+async def archive_unit(
+    unit_id: int,
+    body: dict,
+    user: dict = Depends(require_any_role(["SCM", "ADMIN"])),
+):
+    return await unit_controller.archive_unit(user, unit_id, body)
 
 
 @router.post("/{unit_id}/defects")
-async def add_defect_to_unit(unit_id: int, body: dict, request: Request):
+async def add_defect_to_unit(unit_id: int, body: dict, request: Request, user: dict = Depends(require_auth)):
     validate_override_permission(request, body)
-    return await unit_controller.add_defect_to_unit(unit_id, body)
+    return await unit_controller.add_defect_to_unit(user, unit_id, body)
 
 
 @router.put("/{unit_id}/defects/{defect_id}")
-async def update_defect_grade(unit_id: int, defect_id: int, body: dict):
-    return await unit_controller.update_defect_grade(unit_id, defect_id, body)
+async def update_defect_grade(unit_id: int, defect_id: int, body: dict, user: dict = Depends(require_auth)):
+    return await unit_controller.update_defect_grade(user, unit_id, defect_id, body)
+
+
+@router.post("/{unit_id}/defects/{defect_id}/photos")
+async def attach_defect_photo(
+    unit_id: int,
+    defect_id: int,
+    body: dict,
+    user: dict = Depends(require_auth),
+):
+    return await unit_controller.attach_defect_photo(user, unit_id, defect_id, body)
 
 
 @router.delete("/{unit_id}/defects/{defect_id}/photo")
@@ -133,10 +146,9 @@ async def delete_defect_photo(
     defect_id: int,
     user: dict = Depends(require_any_role(["SCM", "ADMIN"])),
 ):
-    _ = user
-    return await unit_controller.delete_defect_photo(unit_id, defect_id)
+    return await unit_controller.delete_defect_photo(user, unit_id, defect_id)
 
 
 @router.put("/priority/order")
-async def update_priority_order(body: dict):
-    return await unit_controller.update_priority_order(body)
+async def update_priority_order(body: dict, user: dict = Depends(require_auth)):
+    return await unit_controller.update_priority_order(user, body)

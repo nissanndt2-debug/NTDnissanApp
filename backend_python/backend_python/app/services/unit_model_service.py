@@ -1,4 +1,5 @@
 from app.repositories.unit_model_repository import unit_model_repository
+from app.realtime.notification_hub import notification_hub
 
 
 class UnitModelService:
@@ -22,7 +23,9 @@ class UnitModelService:
         if existing:
             raise ValueError(f"Model code {code} already exists")
 
-        return await unit_model_repository.create(code, name, is_active)
+        created = await unit_model_repository.create(code, name, is_active)
+        await notification_hub.broadcast_reference_update("models")
+        return created
 
     async def update_model(self, model_id: int, data: dict):
         existing = await unit_model_repository.find_by_id(model_id)
@@ -49,14 +52,18 @@ class UnitModelService:
         if "isActive" in data:
             is_active = bool(data.get("isActive"))
 
-        return await unit_model_repository.update(model_id, code, name, is_active)
+        updated = await unit_model_repository.update(model_id, code, name, is_active)
+        await notification_hub.broadcast_reference_update("models")
+        return updated
 
     async def delete_model(self, model_id: int):
         existing = await unit_model_repository.find_by_id(model_id)
         if not existing:
             raise ValueError("Model not found")
 
-        return await unit_model_repository.update(model_id, is_active=False)
+        updated = await unit_model_repository.update(model_id, is_active=False)
+        await notification_hub.broadcast_reference_update("models")
+        return updated
 
 
 unit_model_service = UnitModelService()

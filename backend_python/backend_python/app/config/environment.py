@@ -15,6 +15,13 @@ def _required(name: str) -> str:
     return value
 
 
+def _jwt_secret() -> str:
+    secret = _required("JWT_SECRET")
+    if os.getenv("NODE_ENV", "development").lower() == "production" and len(secret.encode("utf-8")) < 32:
+        raise ValueError("JWT_SECRET debe tener al menos 32 bytes en produccion")
+    return secret
+
+
 @dataclass
 class Env:
     node_env: str
@@ -30,13 +37,14 @@ class Env:
     cloudinary_url: str | None
     cloudinary_folder: str
     expo_access_token: str | None
+    realtime_debug: bool
 
 
 env = Env(
     node_env=os.getenv("NODE_ENV", "development"),
     port=int(os.getenv("PORT", "3001")),
     use_https=os.getenv("USE_HTTPS", "false").lower() == "true",
-    jwt_secret=_required("JWT_SECRET"),
+    jwt_secret=_jwt_secret(),
     jwt_expires_in=os.getenv("JWT_EXPIRES_IN", "15m"),
     refresh_token_expires_in=os.getenv("REFRESH_TOKEN_EXPIRES_IN", "30d"),
     cors_origin=os.getenv("CORS_ORIGIN", "http://localhost:3000"),
@@ -51,4 +59,6 @@ env = Env(
     # capa extra de Expo contra suplantacion. Ver EXPO_ACCESS_TOKEN en Expo
     # Dashboard -> Account settings -> Access tokens.
     expo_access_token=os.getenv("EXPO_ACCESS_TOKEN"),
+    # Registra ciclos WebSocket y eventos de unidad sin incluir tokens.
+    realtime_debug=os.getenv("REALTIME_DEBUG", "false").lower() == "true",
 )

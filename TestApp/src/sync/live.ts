@@ -1,81 +1,160 @@
+import { getApiBaseUrl } from '@/api/client';
 import type { AppNotification } from '@/domain/notifications';
 
-/**
- * Canal en vivo (WebSocket) contra `backend_python`'s
- * `ws://host/ws/notifications?token=<JWT>`.
- *
- * El contrato es real, no especulativo: el servidor manda
- * `{"type": "connected"}` al conectar y
- * `{"type": "notification", "payload": Notification[]}` cada vez que
- * `notification_service` crea notificaciones para este usuario (ver
- * `app/realtime/notification_hub.py`). No hace falta ningun endpoint nuevo.
- *
- * Sin `EXPO_PUBLIC_REALTIME_URL` el canal queda inerte — la app sigue
- * funcionando por REST (`GET /notifications`) y el sondeo normal de
- * `SyncProvider`. No hace falta hardware de ningun tipo.
- */
+/** Un cambio de unidad no lleva datos completos: obliga a sincronizar SQLite. */
+export interface UnitUpdateEvent {
+  eventId?: string;
+  unitId: number;
+  event: string;
+  status?: string;
+  plant?: string | null;
+  createdAt?: string;
+}
 
 export type LiveMessage =
   | { type: 'connected' }
-  | { type: 'notification'; payload: AppNotification[] };
+  | { type: 'heartbeat' }
+  | { type: 'notification'; payload: AppNotification[] }
+  | { type: 'unit-update'; payload: UnitUpdateEvent }
+  | { type: 'reference-update'; payload: { eventId: string; resource: string } };
+
+export interface LiveHandlers {
+  onNotification: (items: AppNotification[]) => void;
+  onUnitUpdate: (event: UnitUpdateEvent) => void;
+  onReferenceUpdate: (resource: string) => void;
+  onStatus?: (connected: boolean) => void;
+}
 
 export interface LiveHandle {
   close: () => void;
+  /** Fuerza una nueva suscripcion despues de recuperar red o primer plano. */
+  reconnect: () => void;
 }
 
-function resolveUrl(): string | null {
-  const configured = process.env.EXPO_PUBLIC_REALTIME_URL?.trim();
-  return configured ? configured.replace(/\/+$/, '') : null;
-}
-
-/** Tope del backoff. Reconectar mas seguido no arregla un servidor caido. */
 const MAX_DELAY_MS = 30_000;
+const KEEPALIVE_MS = 20_000;
+const AUTH_REJECTED_CLOSE_CODE = 1008;
+const WS_TOKEN_PROTOCOL_PREFIX = 'bodyapp.jwt.';
+
+function debug(...args: unknown[]): void {
+  if (process.env.EXPO_PUBLIC_REALTIME_DEBUG === 'true') {
+    console.info('[realtime]', ...args);
+  }
+}
+
+function resolveUrl(): string {
+  const configured = process.env.EXPO_PUBLIC_REALTIME_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, '');
+
+  // En desarrollo no se debe requerir una segunda URL: API y WebSocket son el
+  // mismo backend. Esto elimina el caso donde REST funciona pero realtime no.
+  return `${getApiBaseUrl().replace(/^http/i, 'ws')}/ws/notifications`;
+}
 
 /**
- * Abre el canal y llama a `onNotification` con cada lote que llegue.
- * Reconecta con backoff exponencial. Devuelve null si no hay canal
- * configurado (no hay nada que cerrar en ese caso).
+ * Un solo WebSocket por sesion. Reconecta con backoff, ignora callbacks de
+ * sockets obsoletos y nunca deja que un error viejo cierre la conexion nueva.
  */
-export function openLiveChannel(
-  token: string,
-  onNotification: (items: AppNotification[]) => void,
-  onStatus?: (connected: boolean) => void
-): LiveHandle | null {
+export function openLiveChannel(token: string, handlers: LiveHandlers): LiveHandle {
   const base = resolveUrl();
-  if (!base) return null;
-
   let socket: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   let attempt = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let closed = false;
+  let intentionallyClosed = false;
+  let connected = false;
+
+  const setStatus = (next: boolean) => {
+    if (connected === next) return;
+    connected = next;
+    handlers.onStatus?.(next);
+  };
+
+  const clearTimers = () => {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (keepaliveTimer) clearInterval(keepaliveTimer);
+    reconnectTimer = null;
+    keepaliveTimer = null;
+  };
+
+  const scheduleReconnect = () => {
+    if (intentionallyClosed || reconnectTimer) return;
+    attempt += 1;
+    const exponential = Math.min(1_000 * 2 ** (attempt - 1), MAX_DELAY_MS);
+    const jitter = Math.floor(Math.random() * Math.min(1_000, exponential * 0.2));
+    const delay = exponential + jitter;
+    debug('reconnect scheduled', { attempt, delay });
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  };
 
   const connect = () => {
-    if (closed) return;
+    if (intentionallyClosed || reconnectTimer) return;
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
 
-    socket = new WebSocket(`${base}?token=${encodeURIComponent(token)}`);
+    // El JWT no se pone en la URL: esa URL puede guardarse en historial,
+    // registros de proxy o telemetria. El servidor confirma este subprotocolo
+    // durante el handshake y no acepta el esquema anterior con `?token=`.
+    const candidate = new WebSocket(base, [`${WS_TOKEN_PROTOCOL_PREFIX}${token}`]);
+    socket = candidate;
+    debug('connecting', { attempt, base });
 
-    socket.onopen = () => {
+    candidate.onopen = () => {
+      if (socket !== candidate || intentionallyClosed) return;
       attempt = 0;
-      onStatus?.(true);
+      setStatus(true);
+      debug('connected');
+      keepaliveTimer = setInterval(() => {
+        if (socket === candidate && candidate.readyState === WebSocket.OPEN) {
+          candidate.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, KEEPALIVE_MS);
     };
 
-    socket.onmessage = (message) => {
+    candidate.onmessage = (message) => {
+      if (socket !== candidate || intentionallyClosed) return;
       try {
         const parsed = JSON.parse(String(message.data)) as LiveMessage;
-        if (parsed.type === 'notification') onNotification(parsed.payload);
-      } catch {
-        // Mensaje que no es JSON: se ignora, no vale tirar la conexion por el.
+        if (parsed.type === 'notification') {
+          debug('notification received', { count: parsed.payload.length });
+          handlers.onNotification(parsed.payload);
+        } else if (parsed.type === 'unit-update') {
+          debug('unit event received', { event: parsed.payload.event, unitId: parsed.payload.unitId });
+          handlers.onUnitUpdate(parsed.payload);
+        } else if (parsed.type === 'reference-update') {
+          debug('reference event received', { resource: parsed.payload.resource });
+          handlers.onReferenceUpdate(parsed.payload.resource);
+        }
+      } catch (error) {
+        // Un payload malformado no invalida una conexion sana. El siguiente
+        // evento o una reconexion sincronizara desde la fuente de verdad.
+        debug('message ignored', error instanceof Error ? error.message : error);
       }
     };
 
-    socket.onerror = () => socket?.close();
+    candidate.onerror = () => {
+      if (socket === candidate) {
+        debug('socket error');
+        candidate.close();
+      }
+    };
 
-    socket.onclose = () => {
-      onStatus?.(false);
-      if (closed) return;
-      attempt += 1;
-      const delay = Math.min(2 ** attempt * 1000, MAX_DELAY_MS);
-      timer = setTimeout(connect, delay);
+    candidate.onclose = (event) => {
+      if (socket !== candidate) return;
+      socket = null;
+      if (keepaliveTimer) {
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = null;
+      }
+      setStatus(false);
+      debug('disconnected', { code: event.code, intentional: intentionallyClosed });
+      if (!intentionallyClosed && event.code !== AUTH_REJECTED_CLOSE_CODE) {
+        scheduleReconnect();
+      }
     };
   };
 
@@ -83,13 +162,27 @@ export function openLiveChannel(
 
   return {
     close: () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      socket?.close();
+      intentionallyClosed = true;
+      clearTimers();
+      const current = socket;
+      socket = null;
+      setStatus(false);
+      if (current && current.readyState < WebSocket.CLOSING) current.close();
+      debug('subscription cancelled');
+    },
+    reconnect: () => {
+      if (intentionallyClosed) return;
+      clearTimers();
+      const current = socket;
+      socket = null;
+      if (current && current.readyState < WebSocket.CLOSING) current.close();
+      setStatus(false);
+      debug('manual reconnect');
+      connect();
     },
   };
 }
 
 export function isLiveConfigured(): boolean {
-  return resolveUrl() !== null;
+  return Boolean(resolveUrl());
 }

@@ -17,7 +17,6 @@ export function useUnits(statuses: UnitStatus | UnitStatus[]) {
       const groups = await Promise.all(list.map(listByStatus));
       return groups.flat();
     },
-    refetchInterval: 15_000,
     initialData: [],
     // La lista vacia es un marcador de posicion, no un resultado: sin esto el
     // `staleTime` global la daria por buena y la pantalla abriria vacia.

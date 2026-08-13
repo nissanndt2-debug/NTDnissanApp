@@ -80,24 +80,39 @@ class BlobStorageService:
             secure=True,
         )
 
-    def _upload_sync(self, content: bytes, defect_local_id: str) -> str:
+    def _upload_sync(self, content: bytes, defect_local_id: str, upload_key: str) -> dict[str, str]:
         self._configure_sdk()
         import cloudinary.uploader
 
         result = cloudinary.uploader.upload(
             content,
             folder=f"{self._folder}/{defect_local_id}",
+            public_id=upload_key,
+            overwrite=True,
+            unique_filename=False,
             resource_type="image",
         )
-        return result["secure_url"]
+        secure_url = result.get("secure_url")
+        public_id = result.get("public_id")
+        if not isinstance(secure_url, str) or not secure_url.startswith("https://"):
+            raise RuntimeError("Cloudinary no devolvio secure_url")
+        if not isinstance(public_id, str) or not public_id:
+            raise RuntimeError("Cloudinary no devolvio public_id")
+        return {"url": secure_url, "publicId": public_id}
 
-    async def upload_photo(self, content: bytes, content_type: str, defect_local_id: str = "misc") -> str:
+    async def upload_photo(
+        self,
+        content: bytes,
+        content_type: str,
+        defect_local_id: str = "misc",
+        upload_key: str = "misc",
+    ) -> dict[str, str]:
         """Sube una foto y devuelve su URL publica. `defect_local_id` solo
         organiza la carpeta, no cambia el comportamiento."""
         if not self.is_configured():
             raise RuntimeError("CLOUDINARY_URL no esta configurado")
 
-        return await asyncio.to_thread(self._upload_sync, content, defect_local_id)
+        return await asyncio.to_thread(self._upload_sync, content, defect_local_id, upload_key)
 
     def is_vercel_blob_url(self, url: str) -> bool:
         try:
@@ -118,6 +133,26 @@ class BlobStorageService:
             parsed = urlparse(url.strip())
             hostname = (parsed.hostname or "").lower()
             return parsed.scheme in {"http", "https"} and hostname == "res.cloudinary.com"
+        except Exception:
+            return False
+
+    def is_managed_cloudinary_url(self, url: str) -> bool:
+        """Acepta solo evidencias emitidas por este cloud y esta carpeta.
+
+        Validar unicamente `res.cloudinary.com` permitiria adjuntar una URL
+        publica de cualquier cuenta Cloudinary. No se usa para lecturas
+        historicas (que pueden ser de la migracion anterior), solo para nuevas
+        asociaciones de evidencia.
+        """
+        if not self.is_cloudinary_url(url):
+            return False
+        try:
+            configured = urlparse(self._cloudinary_url)
+            parsed = urlparse(url.strip())
+            if not configured.hostname or not parsed.path.startswith(f"/{configured.hostname}/image/upload/"):
+                return False
+            match = _CLOUDINARY_PUBLIC_ID_RE.search(parsed.path)
+            return bool(match and match.group("public_id").startswith(f"{self._folder}/"))
         except Exception:
             return False
 

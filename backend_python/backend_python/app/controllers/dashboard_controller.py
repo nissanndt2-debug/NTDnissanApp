@@ -67,6 +67,53 @@ async def get_defects_by_model(user: dict | None = None):
     return {"ok": True, "data": await fetch(query, *args)}
 
 
+async def get_repair_time_by_provider(user: dict | None = None):
+    """Carga acumulada: conserva los datos históricos aunque ya no estén en el pull local."""
+    plant = get_user_plant_filter(user)
+    query = """
+    SELECT COALESCE(p.name, 'Sin proveedor') AS provider,
+           COALESCE(SUM(u."estimatedRepairHours"), 0)::float AS hours,
+           COUNT(u.id)::int AS units
+    FROM "Unit" u
+    LEFT JOIN "Provider" p ON p.id = u."providerId"
+    WHERE u."estimatedRepairHours" IS NOT NULL
+    """
+    args: list[object] = []
+    if plant:
+        args.append(plant)
+        query += f' AND u.plant = ${len(args)}'
+    query += """
+    GROUP BY p.name
+    ORDER BY hours DESC, units DESC, provider ASC
+    LIMIT 5
+    """
+    return {"ok": True, "data": await fetch(query, *args)}
+
+
+async def get_repair_time_by_model(user: dict | None = None):
+    """Agrupa horas por código de modelo derivado del VIN, con nombre si está catalogado."""
+    plant = get_user_plant_filter(user)
+    query = """
+    SELECT SUBSTRING(u.vin, 5, 2) AS model_code,
+           MAX(m.name) AS model_name,
+           COALESCE(SUM(u."estimatedRepairHours"), 0)::float AS hours,
+           COUNT(u.id)::int AS units
+    FROM "Unit" u
+    LEFT JOIN "UnitModel" m ON m.code = SUBSTRING(u.vin, 5, 2)
+    WHERE u."estimatedRepairHours" IS NOT NULL
+    """
+    args: list[object] = []
+    if plant:
+        args.append(plant)
+        query += f' AND u.plant = ${len(args)}'
+    query += """
+    GROUP BY SUBSTRING(u.vin, 5, 2)
+    ORDER BY hours DESC, units DESC, model_code ASC
+    LIMIT 8
+    """
+    return {"ok": True, "data": await fetch(query, *args)}
+
+
 async def get_defects_by_type(user: dict | None = None, grade: str | None = None):
     plant = get_user_plant_filter(user)
     query = """

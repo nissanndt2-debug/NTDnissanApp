@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Redirect, router } from 'expo-router';
-import { Download } from 'lucide-react-native';
+import { Activity, ArrowRight, Download, RefreshCw } from 'lucide-react-native';
 import { Image, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { dashboard as dashboardApi } from '@/api/endpoints';
 import { useAuth } from '@/auth/AuthProvider';
 import { buildUnitsCsv, downloadCsv } from '@/data/csvExport';
 import { loadDashboard } from '@/data/stats';
@@ -57,7 +58,26 @@ export default function DashboardScreen() {
   const { data } = useQuery({
     queryKey: ['stats', 'dashboard'],
     queryFn: loadDashboard,
-    refetchInterval: 15_000,
+  });
+  const { data: monthlyTimeline = [] } = useQuery({
+    queryKey: ['dashboard', 'monthly-timeline', user?.plant],
+    queryFn: () => dashboardApi.monthlyTimeline(token!),
+    enabled: Boolean(token),
+  });
+  const { data: weeklyByProvider = [] } = useQuery({
+    queryKey: ['dashboard', 'weekly-by-provider', user?.plant],
+    queryFn: () => dashboardApi.weeklyByProvider(token!),
+    enabled: Boolean(token),
+  });
+  const { data: repairTimeByProvider = [] } = useQuery({
+    queryKey: ['dashboard', 'repair-time-by-provider', user?.plant],
+    queryFn: () => dashboardApi.repairTimeByProvider(token!),
+    enabled: Boolean(token),
+  });
+  const { data: repairTimeByModel = [] } = useQuery({
+    queryKey: ['dashboard', 'repair-time-by-model', user?.plant],
+    queryFn: () => dashboardApi.repairTimeByModel(token!),
+    enabled: Boolean(token),
   });
 
   if (!token) return <Redirect href="/login" />;
@@ -70,6 +90,18 @@ export default function DashboardScreen() {
   const maxStage = Math.max(1, ...(data?.byStatus.map((row) => row.count) ?? [1]));
   const maxPareto = Math.max(1, ...(data?.pareto.map((row) => row.count) ?? [1]));
   const totalGrades = data?.byGrade.reduce((sum, row) => sum + row.count, 0) ?? 0;
+  const topProviders = Object.entries(
+    weeklyByProvider.reduce<Record<string, number>>((totals, row) => {
+      totals[row.provider] = (totals[row.provider] ?? 0) + row.count;
+      return totals;
+    }, {})
+  )
+    .map(([provider, count]) => ({ provider, count }))
+    .sort((a, b) => b.count - a.count || a.provider.localeCompare(b.provider))
+    .slice(0, 5);
+  const maxTopProviders = Math.max(1, ...topProviders.map((row) => row.count));
+  const maxProviderHours = Math.max(1, ...repairTimeByProvider.map((row) => row.hours));
+  const maxModelHours = Math.max(1, ...repairTimeByModel.map((row) => row.hours));
 
   const stageCount = (status: UnitStatus) =>
     data?.byStatus.find((row) => row.status === status)?.count ?? 0;
@@ -87,8 +119,88 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas">
       <ScrollView contentContainerClassName="p-6 max-w-[1400px] w-full mx-auto">
+        <View
+          className="mb-5 flex-row flex-wrap items-start justify-between gap-5 overflow-hidden rounded-[28px] bg-ink p-5"
+          style={{ boxShadow: '0 8px 24px rgba(15, 22, 32, 0.16)' }}
+        >
+          <View className="max-w-[620px]">
+            <Text className="text-label font-bold uppercase text-white/45">Centro de control</Text>
+            <Image
+              source={require('../assets/nissan-logo.png')}
+              style={{ height: 18, width: 122, marginTop: 12 }}
+              resizeMode="contain"
+              accessibilityLabel="Nissan"
+            />
+            <Text className="mt-3 text-3xl font-bold text-white">Body App · Dashboard</Text>
+            <Text style={{ display: 'none' }}>
+              Visualiza el flujo de unidades, identifica bloqueos y toma decisiones de
+              operación desde un solo lugar.
+            </Text>
+            <Text selectable className="mt-3 text-xs font-semibold text-white/55">
+              {user?.name} · {user ? ROLE_NAME_BY_ID[user.roleId] : ''}
+              {user?.plant ? ` · Planta ${user.plant}` : ' · Todas las plantas'}
+            </Text>
+          </View>
+
+          <View className="min-w-[300px] gap-3">
+            <View className="flex-row items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <View className="flex-row items-center gap-2">
+                <View
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    !online ? 'bg-pending' : pending > 0 ? 'bg-v3' : 'bg-synced'
+                  }`}
+                />
+                <Text className="text-xs font-bold text-white">Estado de sincronización</Text>
+              </View>
+              <Text className="text-xs font-medium text-white/65">
+                {!online
+                  ? 'Sin conexión'
+                  : syncing
+                    ? 'Actualizando'
+                    : lastPullAt
+                      ? lastPullAt.toLocaleTimeString('es-MX', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Pendiente'}
+              </Text>
+            </View>
+
+            <View className="flex-row flex-wrap items-center gap-2">
+              <Pressable
+                onPress={() => void syncNow()}
+                className="min-h-[44px] flex-row items-center gap-2 rounded-xl bg-primary px-4 active:opacity-80"
+              >
+                <RefreshCw color={COLORS.white} size={17} strokeWidth={2.3} />
+                <Text className="text-sm font-bold text-white">Actualizar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void onExportCsv()}
+                className="min-h-[44px] flex-row items-center gap-2 rounded-xl bg-white px-4 active:opacity-80"
+              >
+                <Download color={COLORS.ink} size={16} strokeWidth={2.2} />
+                <Text className="text-sm font-bold text-ink">Exportar CSV</Text>
+              </Pressable>
+              <NotificationBell onDark />
+            </View>
+
+            <View className="flex-row items-center justify-between px-1">
+              <Pressable
+                onPress={() => router.push('/(app)')}
+                className="flex-row items-center gap-1.5 py-1 active:opacity-75"
+              >
+                <Text className="text-xs font-bold text-white">Ir a operaciones</Text>
+                <ArrowRight color={COLORS.white} size={15} strokeWidth={2.4} />
+              </Pressable>
+              <Pressable onPress={() => void signOut()} className="py-1 active:opacity-75">
+                <Text className="text-xs font-bold text-white/60">Cerrar sesión</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+
         {/* Encabezado tipo navbar: marca + identidad del usuario */}
-        <View className="mb-6 flex-row flex-wrap items-start justify-between gap-4">
+        <View style={{ display: 'none' }}>
           <View>
             <Image
               source={require('../assets/nissan-logo.png')}
@@ -154,8 +266,26 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        <View className="mb-3 flex-row items-center gap-3 px-1">
+          <View className="h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+            <Activity color={COLORS.primary} size={20} strokeWidth={2.2} />
+          </View>
+          <View className="flex-1">
+            <Text className="text-sm font-bold text-ink">Resumen operativo</Text>
+            <Text className="mt-0.5 text-xs text-muted">
+              Indicadores actualizados desde el flujo de operación.
+            </Text>
+          </View>
+          <View className="rounded-full bg-surface px-3 py-1.5">
+            <Text selectable className="text-xs font-bold text-ink">
+              {data?.totalUnits ?? 0} activas
+            </Text>
+          </View>
+        </View>
+
         {/* KPIs */}
-        <View className="mb-4 flex-row flex-wrap gap-4">
+        <View className="mb-4 gap-4">
+          <View className={wide ? 'flex-row gap-4' : 'gap-4'}>
           <KpiCard
             label="Unidades activas"
             value={data?.totalUnits ?? 0}
@@ -172,6 +302,8 @@ export default function DashboardScreen() {
             hint="estimada en cola + reparacion"
             tone={(data?.estimatedBacklogHours ?? 0) > 40 ? 'warn' : 'neutral'}
           />
+          </View>
+          <View className={wide ? 'flex-row gap-4' : 'gap-4'}>
           <KpiCard
             label="Cuello de botella"
             value={bottleneck ? STAGE_LABELS[bottleneck.status] ?? bottleneck.status : '—'}
@@ -190,6 +322,7 @@ export default function DashboardScreen() {
             hint="promedio, unidades activas"
             tone={(data?.defectsPerVehicle ?? 0) > 1.5 ? 'warn' : 'neutral'}
           />
+          </View>
         </View>
 
         {/* Fila principal */}
@@ -302,6 +435,73 @@ export default function DashboardScreen() {
           </Panel>
         </View>
 
+        {/* Histórico del backend: mantiene datos de unidades que el cache operativo ya no conserva. */}
+        <View className="mb-4">
+          <Panel
+            title="Tendencia de unidades"
+            subtitle="Registros creados durante los últimos 30 días"
+          >
+            <TimelineBars rows={monthlyTimeline} />
+          </Panel>
+        </View>
+
+        <View className={`mb-4 gap-4 ${wide ? 'flex-row' : ''}`}>
+          <Panel
+            title="Top 5 proveedores"
+            subtitle="Unidades registradas en los últimos 7 días"
+            className={wide ? 'flex-1' : 'mb-4'}
+          >
+            {topProviders.map((row, index) => (
+              <BarRow
+                key={row.provider}
+                label={`${index + 1}. ${row.provider}`}
+                value={row.count}
+                max={maxTopProviders}
+                color={index === 0 ? 'bg-primary' : 'bg-v2'}
+                suffix=" unidades"
+                highlight={index === 0}
+              />
+            ))}
+            {topProviders.length === 0 ? <ChartEmpty message="Aún no hay actividad de proveedores esta semana." /> : null}
+          </Panel>
+
+          <Panel
+            title="Tiempo por proveedor"
+            subtitle="Horas estimadas acumuladas por proveedor"
+            className={wide ? 'flex-1' : 'mb-4'}
+          >
+            {repairTimeByProvider.map((row) => (
+              <BarRow
+                key={row.provider}
+                label={`${row.provider} · ${row.units} unidades`}
+                value={row.hours}
+                max={maxProviderHours}
+                color="bg-primary"
+                suffix=" h"
+              />
+            ))}
+            {repairTimeByProvider.length === 0 ? <ChartEmpty message="Sin horas de reparación registradas aún." /> : null}
+          </Panel>
+
+          <Panel
+            title="Tiempo por modelo"
+            subtitle="Carga estimada acumulada por modelo"
+            className={wide ? 'flex-1' : ''}
+          >
+            {repairTimeByModel.map((row) => (
+              <BarRow
+                key={row.model_code}
+                label={`${row.model_name || row.model_code} · ${row.units} unidades`}
+                value={row.hours}
+                max={maxModelHours}
+                color="bg-v3"
+                suffix=" h"
+              />
+            ))}
+            {repairTimeByModel.length === 0 ? <ChartEmpty message="Sin modelos con tiempo estimado aún." /> : null}
+          </Panel>
+        </View>
+
         {/* Actividad en vivo: mismo feed que alimenta la campana, no un mock
             aparte — si aqui aparece algo, es porque de verdad paso. */}
         <Panel
@@ -358,4 +558,40 @@ export default function DashboardScreen() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function TimelineBars({ rows }: { rows: { date: string; count: number }[] }) {
+  const max = Math.max(1, ...rows.map((row) => row.count));
+  const first = rows[0]?.date;
+  const middle = rows[Math.floor(rows.length / 2)]?.date;
+  const last = rows.at(-1)?.date;
+  const formatDate = (value?: string) => value ? new Date(`${value}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) : '—';
+
+  if (rows.length === 0) return <ChartEmpty message="No fue posible cargar la tendencia histórica." />;
+
+  return (
+    <View>
+      <View className="h-28 flex-row items-end">
+        {rows.map((row) => (
+          <View key={row.date} className="flex-1 justify-end" style={{ marginHorizontal: 1 }}>
+            <View
+              className={`min-h-[3px] rounded-t-sm ${row.count === max ? 'bg-primary' : 'bg-primary/45'}`}
+              style={{ height: `${Math.max(3, (row.count / max) * 100)}%` }}
+              accessibilityLabel={`${row.date}: ${row.count} unidades`}
+            />
+          </View>
+        ))}
+      </View>
+      <View className="mt-2 flex-row justify-between">
+        <Text className="text-[10px] font-medium text-muted">{formatDate(first)}</Text>
+        <Text className="text-[10px] font-medium text-muted">{formatDate(middle)}</Text>
+        <Text className="text-[10px] font-medium text-muted">{formatDate(last)}</Text>
+      </View>
+      <Text className="mt-3 text-xs text-muted">Máximo diario: {max} unidades · datos del servidor</Text>
+    </View>
+  );
+}
+
+function ChartEmpty({ message }: { message: string }) {
+  return <Text className="py-6 text-center text-sm text-muted">{message}</Text>;
 }

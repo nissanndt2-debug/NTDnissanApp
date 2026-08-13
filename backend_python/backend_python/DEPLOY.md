@@ -30,7 +30,8 @@ estandar, registro de contenedores OCI estandar). Cero cambios de codigo.
 3. Carga el schema:
    ```bash
    psql "<tu-connection-string-de-neon>" -f db-init/01-schema.sql
-   psql "<tu-connection-string-de-neon>" -f db-init/02-admin.sql
+   # No ejecutes db-init/02-admin.sql en producción: contiene cuentas demo.
+   # Crea el primer ADMIN con una contraseña única mediante un proceso seguro.
    ```
 
 ### 2. Imagen Docker — GitHub Container Registry (gratis)
@@ -76,7 +77,7 @@ az containerapp create \
   --env-vars \
     NODE_ENV=production \
     PORT=3001 \
-    CORS_ORIGIN="*" \
+    CORS_ORIGIN="https://<tu-dashboard-web>" \
     JWT_SECRET=secretref:jwt-secret \
     DATABASE_URL=secretref:database-url \
   --secrets \
@@ -176,8 +177,8 @@ az containerapp update --resource-group $RESOURCE_GROUP --name body-app-backend 
 
 ## Notas
 
-- **CORS_ORIGIN=`*`** esta bien para una prueba (nadie mas lo usa); en
-  produccion hay que ponerlo a la URL real del dashboard web.
+- **CORS_ORIGIN** debe contener exclusivamente la URL HTTPS real del dashboard
+  web (o una lista separada por comas). El backend rechaza `*` en producción.
 - **La app movil (TestApp) no se despliega aqui** — eso es EAS Build/Update,
   un flujo completamente distinto (ver `eas.json` en la raiz del repo del
   frontend).

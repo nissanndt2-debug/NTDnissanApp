@@ -7,7 +7,7 @@
  *  - `meta`     : marcas de agua de sincronizacion
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const DDL = `
 PRAGMA journal_mode = WAL;
@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS defect (
   photo_urls    TEXT NOT NULL DEFAULT '[]',
   -- rutas de archivo local aun sin subir (JSON array)
   pending_photos TEXT NOT NULL DEFAULT '[]',
+  -- Error visible de la última carga; nunca sustituye la evidencia local.
+  photo_error    TEXT,
   sync_state    TEXT NOT NULL DEFAULT 'pending'
 );
 

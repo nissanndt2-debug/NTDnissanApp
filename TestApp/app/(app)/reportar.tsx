@@ -1,18 +1,37 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { ScanLine } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '@/auth/AuthProvider';
-import { PREF_KEYS, getPref, setPref } from '@/data/prefs';
-import { createUnit, discardUnit } from '@/data/units';
-import { ROLE_IDS, VIN_LENGTH, VIN_REGEX, normalizeVin, type Grade } from '@/domain/constants';
-import { OFF_DIAGRAM_ZONES, findingLabel, zoneCode, zoneLabel } from '@/domain/zones';
-import { DamageSheet, type DraftDefect } from '@/ui/DamageSheet';
-import { SyncBadge } from '@/ui/SyncBadge';
-import { COLORS, GRADE_BG } from '@/ui/theme';
-import { VehicleDiagram } from '@/ui/VehicleDiagram';
+import { useQueryClient } from "@tanstack/react-query";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { ScanLine } from "lucide-react-native";
+import { useEffect, useState } from "react";
+import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "@/auth/AuthProvider";
+import { PREF_KEYS, getPref, setPref } from "@/data/prefs";
+import { createUnit, discardUnit } from "@/data/units";
+import {
+  ROLE_IDS,
+  VIN_LENGTH,
+  VIN_REGEX,
+  normalizeVin,
+  type Grade,
+} from "@/domain/constants";
+import {
+  OFF_DIAGRAM_ZONES,
+  findingLabel,
+  zoneCode,
+  zoneLabel,
+} from "@/domain/zones";
+import { DamageSheet, type DraftDefect } from "@/ui/DamageSheet";
+import { SyncBadge } from "@/ui/SyncBadge";
+import { COLORS, GRADE_BG } from "@/ui/theme";
+import { VehicleDiagram } from "@/ui/VehicleDiagram";
 
 /**
  * Captura de una unidad. Objetivo: menos de 60 s, sin scroll obligatorio.
@@ -29,23 +48,27 @@ import { VehicleDiagram } from '@/ui/VehicleDiagram';
  *     cero toques cuando todo salio bien (el 99% de las veces)
  */
 
-const MARKETS = ['Domestico', 'Exportacion', 'Traslado'];
+const MARKETS = ["Domestico", "Exportacion", "Traslado"];
 
 export default function ReportarScreen() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [permission, requestPermission] = useCameraPermissions();
 
-  const [vin, setVin] = useState('');
+  const [vin, setVin] = useState("");
   const [market, setMarket] = useState(MARKETS[0]);
-  const [lane, setLane] = useState('');
+  const [lane, setLane] = useState("");
   const [defects, setDefects] = useState<DraftDefect[]>([]);
   const [activeZone, setActiveZone] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [vinManual, setVinManual] = useState(false);
   const [laneEditor, setLaneEditor] = useState(false);
-  const [laneDraft, setLaneDraft] = useState('');
-  const [saved, setSaved] = useState<{ vin: string; localId: string } | null>(null);
+  const [laneDraft, setLaneDraft] = useState("");
+  const [saved, setSaved] = useState<{
+    vin: string;
+    localId: string;
+    photoCount: number;
+  } | null>(null);
 
   // Valores por defecto del turno anterior: el operador no vuelve a teclearlos.
   useEffect(() => {
@@ -67,7 +90,7 @@ export default function ReportarScreen() {
     return acc;
   }, {});
 
-  const addDefect = (defect: Omit<DraftDefect, 'key' | 'zoneId'>) => {
+  const addDefect = (defect: Omit<DraftDefect, "key" | "zoneId">) => {
     if (!activeZone) return;
     setDefects((prev) => [
       ...prev,
@@ -91,7 +114,7 @@ export default function ReportarScreen() {
       registeredByName: user.name,
       plant: user.plant ?? null,
       // WWS reporta directo en SENT; el resto entra en REPORTED.
-      initialStatus: user.roleId === ROLE_IDS.WWS ? 'SENT' : 'REPORTED',
+      initialStatus: user.roleId === ROLE_IDS.WWS ? "SENT" : "REPORTED",
       defects: defects.map((defect) => ({
         type: `${defect.typeId} - ${findingLabel(defect.typeId)}`,
         // Codigo estable, no solo la etiqueta: agrupar por zona en SQL o en
@@ -109,8 +132,12 @@ export default function ReportarScreen() {
       setPref(PREF_KEYS.market, market),
     ]);
 
-    setSaved({ vin, localId });
-    setVin('');
+    setSaved({
+      vin,
+      localId,
+      photoCount: defects.filter((defect) => Boolean(defect.photoUri)).length,
+    });
+    setVin("");
     setDefects([]);
     setVinManual(false);
     void queryClient.invalidateQueries();
@@ -137,7 +164,7 @@ export default function ReportarScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-canvas" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-canvas" edges={["top"]}>
       {/* 1. Identidad de la unidad */}
       <View className="bg-ink px-4 pb-4 pt-2">
         <View className="mb-3 flex-row items-center justify-between">
@@ -152,7 +179,9 @@ export default function ReportarScreen() {
           >
             <View>
               <Text className="text-label uppercase text-white/50">VIN</Text>
-              <Text className="font-mono text-base font-bold text-white">{vin}</Text>
+              <Text className="font-mono text-base font-bold text-white">
+                {vin}
+              </Text>
             </View>
             <Text className="text-sm font-bold text-white/70">Cambiar</Text>
           </Pressable>
@@ -164,7 +193,9 @@ export default function ReportarScreen() {
                 className="min-h-[56px] flex-[2] flex-row items-center justify-center gap-2 rounded-2xl bg-primary active:opacity-80"
               >
                 <ScanLine color={COLORS.white} size={20} strokeWidth={2} />
-                <Text className="text-base font-bold text-white">Escanear VIN</Text>
+                <Text className="text-base font-bold text-white">
+                  Escanear VIN
+                </Text>
               </Pressable>
               <View className="min-h-[56px] flex-[3] justify-center rounded-2xl border border-white/15 bg-white/10 px-4">
                 <TextInput
@@ -179,7 +210,11 @@ export default function ReportarScreen() {
             </View>
             <Text
               className={`mt-1.5 text-label uppercase ${
-                vinValid ? 'text-synced' : vin.length > 0 ? 'text-v2' : 'text-white/40'
+                vinValid
+                  ? "text-synced"
+                  : vin.length > 0
+                    ? "text-v2"
+                    : "text-white/40"
               }`}
             >
               {vin.length}/{VIN_LENGTH} caracteres
@@ -198,12 +233,14 @@ export default function ReportarScreen() {
           >
             <Text className="text-label uppercase text-white/50">Carril</Text>
             <Text className="text-sm font-bold text-white">
-              {lane.trim() || 'Sin definir'}
+              {lane.trim() || "Sin definir"}
             </Text>
           </Pressable>
           <Pressable
             onPress={() =>
-              setMarket((prev) => MARKETS[(MARKETS.indexOf(prev) + 1) % MARKETS.length])
+              setMarket(
+                (prev) => MARKETS[(MARKETS.indexOf(prev) + 1) % MARKETS.length],
+              )
             }
             className="min-h-[44px] flex-1 justify-center rounded-xl border border-white/15 px-3"
           >
@@ -240,13 +277,17 @@ export default function ReportarScreen() {
                 key={zone.id}
                 onPress={() => setActiveZone(zone.id)}
                 className={`min-h-[48px] flex-1 basis-[46%] flex-row items-center justify-center gap-2 rounded-2xl border-2 bg-surface ${
-                  count > 0 ? 'border-ink' : 'border-line'
+                  count > 0 ? "border-ink" : "border-line"
                 }`}
               >
-                <Text className="text-base font-bold text-ink">{zone.label}</Text>
+                <Text className="text-base font-bold text-ink">
+                  {zone.label}
+                </Text>
                 {count > 0 ? (
                   <View className="h-6 w-6 items-center justify-center rounded-full bg-ink">
-                    <Text className="text-xs font-bold text-white">{count}</Text>
+                    <Text className="text-xs font-bold text-white">
+                      {count}
+                    </Text>
                   </View>
                 ) : null}
               </Pressable>
@@ -273,7 +314,9 @@ export default function ReportarScreen() {
                   />
                 ) : (
                   <View className="h-14 w-14 items-center justify-center rounded-xl bg-canvas">
-                    <Text className="text-[9px] font-semibold text-muted">Sin foto</Text>
+                    <Text className="text-[9px] font-semibold text-muted">
+                      Sin foto
+                    </Text>
                   </View>
                 )}
                 <View
@@ -281,13 +324,17 @@ export default function ReportarScreen() {
                     GRADE_BG[defect.grade]
                   }`}
                 >
-                  <Text className="text-xs font-bold text-white">{defect.grade}</Text>
+                  <Text className="text-xs font-bold text-white">
+                    {defect.grade}
+                  </Text>
                 </View>
                 <View className="flex-1">
                   <Text className="text-base font-semibold text-ink">
                     {findingLabel(defect.typeId)}
                   </Text>
-                  <Text className="text-xs text-muted">{zoneLabel(defect.zoneId)}</Text>
+                  <Text className="text-xs text-muted">
+                    {zoneLabel(defect.zoneId)}
+                  </Text>
                 </View>
                 <Pressable
                   onPress={() => removeDefect(defect.key)}
@@ -307,15 +354,27 @@ export default function ReportarScreen() {
         {saved ? (
           <View className="mb-2 flex-row items-center gap-3 rounded-2xl bg-ink px-4 py-3">
             <View className="flex-1">
-              <Text className="text-sm font-bold text-white">Unidad guardada</Text>
-              <Text className="font-mono text-xs text-white/60">{saved.vin}</Text>
+              <Text className="text-sm font-bold text-white">
+                Unidad guardada
+              </Text>
+              <Text className="font-mono text-xs text-white/60">
+                {saved.vin}
+              </Text>
+              {saved.photoCount > 0 ? (
+                <Text className="mt-1 text-[11px] leading-4 text-white/70">
+                  {saved.photoCount} foto{saved.photoCount === 1 ? "" : "s"} en
+                  cola: se confirma al sincronizar.
+                </Text>
+              ) : null}
             </View>
             <Pressable
               onPress={() => void undoSave()}
               hitSlop={8}
               className="min-h-[44px] justify-center px-2"
             >
-              <Text className="text-sm font-bold text-white underline">Deshacer</Text>
+              <Text className="text-sm font-bold text-white underline">
+                Deshacer
+              </Text>
             </Pressable>
           </View>
         ) : null}
@@ -324,19 +383,19 @@ export default function ReportarScreen() {
           onPress={() => void handleSubmit()}
           disabled={!canSubmit}
           className={`min-h-[60px] flex-row items-center justify-center gap-3 rounded-2xl ${
-            canSubmit ? 'bg-synced active:opacity-80' : 'bg-canvas'
+            canSubmit ? "bg-synced active:opacity-80" : "bg-canvas"
           }`}
         >
           <Text
-            className={`text-lg font-bold ${canSubmit ? 'text-white' : 'text-muted'}`}
+            className={`text-lg font-bold ${canSubmit ? "text-white" : "text-muted"}`}
           >
             {canSubmit
-              ? `Guardar unidad · ${defects.length} dano${defects.length === 1 ? '' : 's'}`
+              ? `Guardar unidad · ${defects.length} dano${defects.length === 1 ? "" : "s"}`
               : !vinValid
-                ? 'Falta el VIN'
+                ? "Falta el VIN"
                 : lane.trim().length === 0
-                  ? 'Falta el carril'
-                  : 'Toca una parte del vehiculo'}
+                  ? "Falta el carril"
+                  : "Toca una parte del vehiculo"}
           </Text>
         </Pressable>
       </View>
@@ -378,7 +437,9 @@ export default function ReportarScreen() {
                 }}
                 className="min-h-[56px] flex-1 items-center justify-center rounded-2xl bg-primary"
               >
-                <Text className="text-base font-bold text-white">Guardar carril</Text>
+                <Text className="text-base font-bold text-white">
+                  Guardar carril
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -390,14 +451,16 @@ export default function ReportarScreen() {
         <View className="flex-1 bg-black">
           <CameraView
             style={{ flex: 1 }}
-            barcodeScannerSettings={{ barcodeTypes: ['code39', 'code128', 'qr', 'pdf417'] }}
+            barcodeScannerSettings={{
+              barcodeTypes: ["code39", "code128", "qr", "pdf417"],
+            }}
             onBarcodeScanned={({ data }) => {
               setVin(normalizeVin(data));
               setVinManual(false);
               setScannerOpen(false);
             }}
           />
-          <SafeAreaView edges={['bottom']} className="bg-black px-6 py-4">
+          <SafeAreaView edges={["bottom"]} className="bg-black px-6 py-4">
             <Text className="mb-3 text-center text-sm text-white/70">
               Apunta al codigo del VIN
             </Text>

@@ -1,5 +1,5 @@
 import NetInfo from '@react-native-community/netinfo';
-import { useQueryClient } from '@tanstack/react-query';
+import { onlineManager, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useAuth } from '@/auth/AuthProvider';
@@ -9,15 +9,14 @@ import { pullAll } from './pull';
 
 /**
  * Orquestador de sincronizacion. Dispara el drenado en cuatro momentos:
- *   - justo al iniciar sesion (antes no pasaba: el operador podia esperar
- *     hasta POLL_MS viendo listas vacias despues de entrar)
+ *   - justo al iniciar sesion, sin esperar un temporizador
  *   - cuando vuelve la conexion
  *   - cuando la app pasa a primer plano
- *   - cada POLL_MS si hay algo pendiente, como red de seguridad
+ *   - tras cada reconexion del canal realtime (desde NotificationProvider)
  *
  * Tras cada pull exitoso invalida las queries de React Query: sin esto, los
- * datos ya estaban frescos en SQLite pero cada pantalla seguia esperando su
- * propio `refetchInterval` (hasta 15 s mas) para volver a leerlos.
+ * datos ya estaban frescos en SQLite pero cada pantalla seguia mostrando
+ * cache previa hasta una recarga manual.
  *
  * Expone `pending` para que la UI muestre siempre cuantos cambios faltan por
  * subir. En piso, esa cifra es la que da confianza al operador.
@@ -34,7 +33,11 @@ interface SyncContextValue {
 
 const SyncContext = createContext<SyncContextValue | undefined>(undefined);
 
-const POLL_MS = 12_000;
+const debug = (...args: unknown[]) => {
+  if (process.env.EXPO_PUBLIC_REALTIME_DEBUG === 'true') {
+    console.info('[sync]', ...args);
+  }
+};
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -45,6 +48,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
   const tokenRef = useRef(token);
   const inFlightRef = useRef(false);
+  const rerunRequestedRef = useRef(false);
 
   useEffect(() => {
     tokenRef.current = token;
@@ -62,25 +66,39 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const syncNow = useCallback(async () => {
     if (!tokenRef.current) return;
 
-    // Guard de reentrada. `setSyncing` no sirve para esto: es estado de React
-    // y no se ve reflejado hasta el siguiente render, asi que dos disparadores
-    // casi simultaneos (volver la red + volver a primer plano) lanzarian dos
-    // ciclos solapados escribiendo sobre las mismas filas.
-    if (inFlightRef.current) return;
+    // Coalescer de reentrada. Un evento que entra durante un pull no puede
+    // perderse: pide una segunda vuelta al terminar en vez de lanzar escrituras
+    // SQLite en paralelo o simplemente ignorarse.
+    if (inFlightRef.current) {
+      rerunRequestedRef.current = true;
+      debug('sync coalesced while another cycle is in flight');
+      return;
+    }
     inFlightRef.current = true;
 
     setSyncing(true);
     try {
-      await drain(tokenRef.current);
-      await pullAll(tokenRef.current);
-      setLastPullAt(new Date());
-      // Los datos ya estan en SQLite; que las pantallas los lean AHORA, no en
-      // su siguiente `refetchInterval`.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['units'] }),
-        queryClient.invalidateQueries({ queryKey: ['pipeline'] }),
-        queryClient.invalidateQueries({ queryKey: ['stats'] }),
-      ]);
+      do {
+        rerunRequestedRef.current = false;
+        await drain(tokenRef.current);
+        await pullAll(tokenRef.current);
+        setLastPullAt(new Date());
+        // Los datos ya estan en SQLite; invalidar todas las vistas derivadas
+        // hace que un evento websocket actualice modulo, historial y KPI.
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['units'] }),
+          queryClient.invalidateQueries({ queryKey: ['pipeline'] }),
+          queryClient.invalidateQueries({ queryKey: ['stats'] }),
+          queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+          queryClient.invalidateQueries({ queryKey: ['history'] }),
+          queryClient.invalidateQueries({ queryKey: ['history-unit'] }),
+          queryClient.invalidateQueries({ queryKey: ['archivable'] }),
+          queryClient.invalidateQueries({ queryKey: ['deletion-requests'] }),
+        ]);
+        debug('cache invalidated after sync');
+      } while (rerunRequestedRef.current && tokenRef.current);
+    } catch (error) {
+      debug('sync failed', error instanceof Error ? error.message : error);
     } finally {
       inFlightRef.current = false;
       setSyncing(false);
@@ -100,6 +118,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = NetInfo.addEventListener((state) => {
       const isOnline = Boolean(state.isConnected && state.isInternetReachable !== false);
       setOnline(isOnline);
+      onlineManager.setOnline(isOnline);
       if (isOnline) void syncNow();
     });
     return unsubscribe;
@@ -112,14 +131,6 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     });
     return () => sub.remove();
   }, [syncNow]);
-
-  // Red de seguridad periodica
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (online) void syncNow();
-    }, POLL_MS);
-    return () => clearInterval(interval);
-  }, [online, syncNow]);
 
   useEffect(() => {
     void refreshPending();

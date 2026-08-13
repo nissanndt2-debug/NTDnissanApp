@@ -5,6 +5,9 @@ import {
   FilePlus2,
   LayoutDashboard,
   LayoutGrid,
+  History,
+  Settings2,
+  ShieldAlert,
   PackageCheck,
   ShieldCheck,
   Wrench,
@@ -33,7 +36,10 @@ export type ScreenName =
   | 'prioridad'
   | 'validar'
   | 'aceptar'
-  | 'operaciones';
+  | 'operaciones'
+  | 'historial'
+  | 'control'
+  | 'perfil';
 
 const ALL_ROLES: RoleId[] = [
   ROLE_IDS.WWS,
@@ -55,12 +61,15 @@ export const SCREEN_ROLES: Record<ScreenName, RoleId[]> = {
   prioridad: [ROLE_IDS.SCM, ROLE_IDS.ADMIN],
   validar: [ROLE_IDS.WTY, ROLE_IDS.SCM_QUALITY, ROLE_IDS.ADMIN],
   aceptar: [ROLE_IDS.CARRIER, ROLE_IDS.ADMIN],
+  historial: ALL_ROLES,
+  control: [ROLE_IDS.SCM, ROLE_IDS.ADMIN],
+  perfil: ALL_ROLES,
 };
 
 /** Pestanas visibles por rol. Maximo 4 para que la barra siga siendo legible. */
 export const TABS_BY_ROLE: Record<RoleId, ScreenName[]> = {
   [ROLE_IDS.WWS]: ['index', 'reportar', 'gestion'],
-  [ROLE_IDS.SCM]: ['index', 'prioridad'],
+  [ROLE_IDS.SCM]: ['index', 'prioridad', 'control'],
   [ROLE_IDS.BODY]: ['index', 'recibir', 'reparar'],
   [ROLE_IDS.CARRIER]: ['index', 'reportar', 'aceptar'],
   [ROLE_IDS.WTY]: ['index', 'validar'],
@@ -78,6 +87,9 @@ export const SCREEN_TITLES: Record<ScreenName, string> = {
   prioridad: 'Prioridad',
   validar: 'Validar',
   aceptar: 'Aceptar',
+  historial: 'Historial',
+  control: 'Control SCM',
+  perfil: 'Perfil',
 };
 
 /**
@@ -94,6 +106,9 @@ export const SCREEN_ICONS: Record<ScreenName, LucideIcon> = {
   prioridad: ArrowUpDown,
   validar: ShieldCheck,
   aceptar: CheckCheck,
+  historial: History,
+  control: ShieldAlert,
+  perfil: Settings2,
 };
 
 /** Descripcion corta para el hub del admin. */
@@ -107,6 +122,9 @@ export const SCREEN_HINTS: Record<ScreenName, string> = {
   prioridad: 'Ordenar la cola de reparación',
   validar: 'Aprobar o rechazar unidades en garantía',
   aceptar: 'Aceptar o rechazar unidades liberadas',
+  historial: 'Consultar el historial y exportar a Excel',
+  control: 'Resolver excepciones y solicitudes de borrado',
+  perfil: 'Seguridad y administración de catálogos',
 };
 
 export function canAccess(screen: ScreenName, roleId?: RoleId | null): boolean {
@@ -124,6 +142,9 @@ export function operationalScreens(roleId?: RoleId | null): ScreenName[] {
   if (!roleId) return [];
   return (Object.keys(SCREEN_ROLES) as ScreenName[]).filter(
     (screen) =>
-      screen !== 'index' && screen !== 'operaciones' && canAccess(screen, roleId)
+      screen !== 'index' &&
+      screen !== 'operaciones' &&
+      screen !== 'perfil' &&
+      canAccess(screen, roleId)
   );
 }

@@ -1,7 +1,12 @@
+import logging
+
 from fastapi import HTTPException, Request, status
 
 from app.middleware.rate_limit import record_login_result
 from app.services.auth_service import auth_service
+
+
+logger = logging.getLogger("body_app_backend")
 
 
 class AuthController:
@@ -12,11 +17,13 @@ class AuthController:
             result = await auth_service.login(credentials)
             record_login_result(request, True)
             return {"ok": True, "data": result}
+        except ValueError as exc:
+            record_login_result(request, False)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales invalidas") from exc
         except Exception as exc:
             record_login_result(request, False)
-            if "Credenciales" in str(exc):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+            logger.exception("Login failed")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="No se pudo iniciar sesion") from exc
 
     async def refresh(self, refresh_token: str):
         if not refresh_token:
@@ -25,7 +32,7 @@ class AuthController:
             result = await auth_service.refresh(refresh_token)
             return {"ok": True, "data": result}
         except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token invalido o expirado") from exc
 
     async def verify_token(self, token: str):
         if not token:
@@ -52,7 +59,10 @@ class AuthController:
     async def change_password(self, user_id: int, current_password: str, new_password: str):
         if not current_password or not new_password:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Se requiere contraseña actual y nueva")
-        await auth_service.change_password(user_id, current_password, new_password)
+        try:
+            await auth_service.change_password(user_id, current_password, new_password)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         return {"ok": True, "message": "Contraseña actualizada"}
 
 
