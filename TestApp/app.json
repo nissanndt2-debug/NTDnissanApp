@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "Body App",
+    "slug": "body-app-mobile",
+    "scheme": "bodyapp",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nissan.bodyapp",
+      "infoPlist": {
+        "NSCameraUsageDescription": "La camara se usa para escanear el VIN de la unidad y tomar evidencia fotografica de los defectos."
+      }
+    },
+    "android": {
+      "package": "com.nissan.bodyapp",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "La camara se usa para escanear el VIN y capturar evidencia de defectos."
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "http://localhost:3001",
+      "router": {},
+      "eas": {
+        "projectId": "d2a3f70c-cfe0-44f1-88c6-05f17d0fabf3"
+      }
+    },
+    "owner": "danydev7"
+  }
+}

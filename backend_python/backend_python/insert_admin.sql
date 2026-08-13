@@ -1,0 +1,1 @@
+INSERT INTO "User" (email, password, name, "roleId", plant, "createdAt", "updatedAt") VALUES ('admin@nissan.com', '$2b$12$9ZUy3mFAXt3./dZPe/dQfuWB1v9zjaZxD5qZwt0myab.1NrijqOWi', 'Admin', 5, 'A1', NOW(), NOW());

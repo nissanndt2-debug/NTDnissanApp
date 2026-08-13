@@ -1,0 +1,53 @@
+# Para probar el backend dockerizado en local, con Postgres real, antes de
+# gastar un centavo en Azure. No es lo que se despliega — Azure Database for
+# PostgreSQL reemplaza a este servicio "db" en produccion (ver DEPLOY.md).
+#
+# Uso:
+#   cp .env.example .env.docker   # y ajusta JWT_SECRET
+#   docker compose up --build
+#
+# El schema en db-init/ se carga solo la PRIMERA vez que se crea el volumen
+# db_data (convencion de la imagen oficial de postgres: todo lo que este en
+# /docker-entrypoint-initdb.d se ejecuta una sola vez, al crear la base).
+# Si ya corriste `docker compose up` antes y cambias el schema, hay que
+# borrar el volumen: `docker compose down -v`.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nissan_body
+    ports:
+      - '5432:5432'
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '3001:3001'
+    environment:
+      PORT: 3001
+      NODE_ENV: development
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-cambiar-en-produccion}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8083}
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/nissan_body
+      # Cloudinary es gratis y sirve igual en local que en produccion — no
+      # hace falta emulador. Sin esta variable, /uploads/photo responde 501.
+      CLOUDINARY_URL: ${CLOUDINARY_URL:-}
+
+volumes:
+  db_data:

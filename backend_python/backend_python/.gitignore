@@ -1,0 +1,21 @@
+# Virtual environments
+venv/
+.venv/
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# IDE
+.vscode/

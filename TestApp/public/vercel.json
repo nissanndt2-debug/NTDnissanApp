@@ -1,0 +1,15 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/assets/node_modules/(.*)", "destination": "/assets/nm/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

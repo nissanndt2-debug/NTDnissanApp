@@ -1,0 +1,16 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "interna": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://body-app-backend-latest.onrender.com",
+        "EXPO_PUBLIC_REALTIME_URL": "wss://body-app-backend-latest.onrender.com/ws/notifications"
+      }
+    }
+  }
+}

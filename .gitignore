@@ -1,0 +1,33 @@
+# Secretos. Solo se versionan los .env.example.
+.env
+.env.*
+!.env.example
+
+# Dependencias e entornos virtuales
+node_modules/
+venv/
+.venv/
+
+# Artefactos de build
+dist/
+dist-web/
+.expo/
+*.apk
+*.aab
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Respaldos de los repos anteriores (ver README)
+.git.backup-*/
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/

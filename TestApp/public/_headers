@@ -1,0 +1,10 @@
+# Netlify / Cloudflare Pages.
+#
+# Sin estas dos cabeceras el dashboard web NO arranca: expo-sqlite usa
+# wa-sqlite (WASM) y su VFS necesita SharedArrayBuffer, que el navegador solo
+# habilita en paginas con aislamiento cross-origin. Sin ellas la base local
+# nunca abre, el login falla y la pantalla se queda en "No se pudo iniciar
+# sesion" sin ninguna pista de por que.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
