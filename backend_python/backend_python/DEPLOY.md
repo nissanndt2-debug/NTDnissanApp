@@ -113,7 +113,7 @@ En `TestApp/eas.json`, perfil de build que uses, cambia:
 ```json
 "EXPO_PUBLIC_API_BASE_URL": "https://<tu-url-de-container-apps>"
 ```
-y genera un build nuevo (`eas build --platform android --profile interna`).
+y genera un build nuevo (`eas build --platform --profile interna`).
 
 ---
 
