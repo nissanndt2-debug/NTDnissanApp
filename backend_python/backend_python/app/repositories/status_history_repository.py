@@ -1,7 +1,6 @@
 from app.config.database import fetch
 from app.constants.index import MAX_LOG_PAGE_SIZE
 
-
 class StatusHistoryRepository:
     async def search(self, filters: dict | None = None):
         filters = filters or {}
@@ -35,14 +34,16 @@ class StatusHistoryRepository:
         if filters.get("startDate") or filters.get("endDate"):
             date_conditions: list[str] = []
             if filters.get("startDate"):
+                # SOLUCIÓN 2: Dejamos createdAt libre y le aplicamos la zona horaria al input string
+                # El input '2026-08-13 00:00:00' se asume México, y se convierte a UTC para comparar con la BD
                 date_conditions.append(
-                    f'e."createdAt" AT TIME ZONE \'UTC\' AT TIME ZONE \'America/Mexico_City\' >= ${param_index}::timestamp'
+                    f'e."createdAt" >= (${param_index}::timestamp AT TIME ZONE \'America/Mexico_City\' AT TIME ZONE \'UTC\')'
                 )
                 params.append(f"{filters['startDate']} 00:00:00")
                 param_index += 1
             if filters.get("endDate"):
                 date_conditions.append(
-                    f'e."createdAt" AT TIME ZONE \'UTC\' AT TIME ZONE \'America/Mexico_City\' <= ${param_index}::timestamp'
+                    f'e."createdAt" <= (${param_index}::timestamp AT TIME ZONE \'America/Mexico_City\' AT TIME ZONE \'UTC\')'
                 )
                 params.append(f"{filters['endDate']} 23:59:59")
                 param_index += 1
@@ -54,20 +55,20 @@ class StatusHistoryRepository:
         limit = max(1, min(int(filters.get("limit") or 200), MAX_LOG_PAGE_SIZE))
         where_sql = f"AND {' AND '.join(where)}" if where else ""
 
-        # Parity with TS: fetch all status history rows for units initially REPORTED or SENT in filtered range.
         query = f"""
         WITH filtered_units AS (
           SELECT DISTINCT u.id as "unitId"
           FROM "UnitEvent" e
           JOIN "Unit" u ON u.id = e."unitId"
           WHERE e."eventType" = 'STATUS_CHANGE'
-            AND e."eventData"->>'newStatus' IN ('REPORTED', 'SENT')
+            -- SOLUCIÓN 1: Uso del operador GIN (@>)
+            AND (e."eventData" @> '{{"newStatus": "REPORTED"}}' OR e."eventData" @> '{{"newStatus": "SENT"}}')
             {reported_date_filter}
             {where_sql}
         )
         SELECT
           e.id as "historyId",
-                    e."createdAt" as "changedAt",
+          e."createdAt" as "changedAt",
           u.id as "unitId", u.vin, u.market, u.lane, u."registeredById", u."providerId",
           e."eventData"->>'previousStatus' as "previousStatus",
           e."eventData"->>'newStatus' as "newStatus",
@@ -87,6 +88,5 @@ class StatusHistoryRepository:
         """
 
         return await fetch(query, *params)
-
 
 status_history_repository = StatusHistoryRepository()

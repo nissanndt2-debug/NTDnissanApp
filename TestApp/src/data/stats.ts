@@ -46,6 +46,27 @@ export interface DashboardData {
   defectsPerVehicle: number;
 }
 
+/**
+ * Contadores por estado para el panel del operador.
+ *
+ * Existe para no contar en JavaScript: `listByStatus(x).length` hacia dos
+ * consultas por estado y materializaba cada unidad Y cada defecto como objetos
+ * solo para leer un `.length`. Con los 8 estados del panel eso eran 16
+ * consultas y todo el dia de trabajo en memoria para mostrar 8 numeros.
+ * Contar es justo lo que SQLite hace mejor que el puente a JS.
+ */
+export async function getPipelineCounts(): Promise<Partial<Record<UnitStatus, number>>> {
+  const rows = await query<{ status_name: UnitStatus; n: number }>(
+    `SELECT status_name, COUNT(*) AS n FROM unit GROUP BY status_name`
+  );
+
+  const counts: Partial<Record<UnitStatus, number>> = {};
+  for (const row of rows) {
+    counts[row.status_name] = row.n;
+  }
+  return counts;
+}
+
 export async function loadDashboard(): Promise<DashboardData> {
   const [statusRows, gradeRows, typeRows, repairRows, totals, backlog] = await Promise.all([
     query<{ status_name: UnitStatus; n: number }>(

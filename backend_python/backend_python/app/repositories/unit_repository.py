@@ -76,6 +76,16 @@ class UnitRepository:
         )
 
     async def find_by_status_name(self, name: str, limit: int = 50, provider_id: int | None = None, plant: str | None = None):
+        """Unidades de un estado con sus defectos ya agrupados.
+
+        Los defectos se agregan con `json_agg` en vez de traer el producto del
+        LEFT JOIN y reagrupar en Python. No es solo velocidad: con el JOIN plano
+        el LIMIT contaba FILAS UNIDAS, no unidades, asi que una unidad con 3
+        defectos gastaba 3 lugares del limite. Pedir 100 devolvia ~33 unidades
+        reales, y la ultima podia llegar con sus defectos cortados a la mitad —
+        el cliente lo guardaba como si esa fuera la verdad. Con GROUP BY el
+        LIMIT vuelve a contar unidades.
+        """
         query = """
             SELECT
                 u.id, u.vin, u.market, u.lane, u."statusId", u."providerId", u.plant,
@@ -83,8 +93,21 @@ class UnitRepository:
                 u."estimatedCompletionDate", u."priorityNote", u."priorityRank",
                 u."priorityAssignedById", u."priorityAssignedAt", u."createdAt", u."updatedAt", u."wtyComment",
                 s.name as "statusName",
-                d.id as "defectId", d."defectType", d.zone, d."gradeId", dg.code as grade,
-                d.description, d."isResolved", d."photoUrls"
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', d.id,
+                            'type', d."defectType",
+                            'zone', d.zone,
+                            'grade', dg.code,
+                            'description', d.description,
+                            'isResolved', d."isResolved",
+                            'photoUrls', COALESCE(d."photoUrls", ARRAY[]::TEXT[])
+                        )
+                        ORDER BY d.id
+                    ) FILTER (WHERE d.id IS NOT NULL),
+                    '[]'::json
+                ) AS defects
             FROM "Unit" u
             JOIN "UnitStatus" s ON s.id = u."statusId"
             LEFT JOIN "UnitDefect" d ON d."unitId" = u.id AND d."isActive" = TRUE
@@ -98,48 +121,13 @@ class UnitRepository:
         if plant is not None:
             args.append(plant)
             query += f' AND u.plant = ${len(args)}'
-        args.append(limit)
-        query += f' ORDER BY u."createdAt" DESC LIMIT ${len(args)}'
 
-        rows = await fetch(query, *args)
-        units: dict[int, dict] = {}
-        for row in rows:
-            unit_id = int(row["id"])
-            if unit_id not in units:
-                units[unit_id] = {
-                    "id": row["id"],
-                    "vin": row["vin"],
-                    "market": row["market"],
-                    "lane": row["lane"],
-                    "statusId": row["statusId"],
-                    "providerId": row["providerId"],
-                    "plant": row.get("plant"),
-                    "statusName": row["statusName"],
-                    "isAvailableToday": row["isAvailableToday"],
-                    "registeredById": row["registeredById"],
-                    "estimatedRepairHours": row["estimatedRepairHours"],
-                    "estimatedCompletionDate": row["estimatedCompletionDate"],
-                    "priorityNote": row["priorityNote"],
-                    "priorityRank": row["priorityRank"],
-                    "priorityAssignedById": row["priorityAssignedById"],
-                    "priorityAssignedAt": row["priorityAssignedAt"],
-                    "createdAt": row["createdAt"],
-                    "updatedAt": row["updatedAt"],
-                    "defects": [],
-                }
-            if row.get("defectId"):
-                units[unit_id]["defects"].append(
-                    {
-                        "id": row["defectId"],
-                        "type": row["defectType"],
-                        "zone": row["zone"],
-                        "grade": row["grade"],
-                        "description": row["description"],
-                        "isResolved": row["isResolved"],
-                        "photoUrls": row["photoUrls"] if isinstance(row.get("photoUrls"), list) else [],
-                    }
-                )
-        return list(units.values())
+        # u.id es la llave primaria, asi que el resto de columnas de u quedan
+        # cubiertas por dependencia funcional y no hay que listarlas aqui.
+        args.append(limit)
+        query += f' GROUP BY u.id, s.name ORDER BY u."createdAt" DESC LIMIT ${len(args)}'
+
+        return await fetch(query, *args)
 
     async def update_priority(self, unit_id: int, note: str | None, rank: int | None, assigned_by_id: int):
         final_rank = rank

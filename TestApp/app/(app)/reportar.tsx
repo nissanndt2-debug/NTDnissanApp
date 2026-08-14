@@ -1,6 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { ScanLine } from "lucide-react-native";
+import {
+  CheckCircle2,
+  CirclePlus,
+  MapPin,
+  ScanLine,
+  ShieldCheck,
+  Truck,
+} from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   Image,
@@ -9,6 +16,7 @@ import {
   ScrollView,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -29,7 +37,6 @@ import {
   zoneLabel,
 } from "@/domain/zones";
 import { DamageSheet, type DraftDefect } from "@/ui/DamageSheet";
-import { SyncBadge } from "@/ui/SyncBadge";
 import { COLORS, GRADE_BG } from "@/ui/theme";
 import { VehicleDiagram } from "@/ui/VehicleDiagram";
 
@@ -54,6 +61,7 @@ export default function ReportarScreen() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [permission, requestPermission] = useCameraPermissions();
+  const { width } = useWindowDimensions();
 
   const [vin, setVin] = useState("");
   const [market, setMarket] = useState(MARKETS[0]);
@@ -84,6 +92,7 @@ export default function ReportarScreen() {
 
   const vinValid = VIN_REGEX.test(vin);
   const canSubmit = vinValid && lane.trim().length > 0 && defects.length > 0;
+  const isWideLayout = width >= 760;
 
   const marks = defects.reduce<Record<string, Grade[]>>((acc, defect) => {
     acc[defect.zoneId] = [...(acc[defect.zoneId] ?? []), defect.grade];
@@ -165,46 +174,50 @@ export default function ReportarScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={["top"]}>
-      {/* 1. Identidad de la unidad */}
-      <View className="bg-ink px-4 pb-4 pt-2">
-        <View className="mb-3 flex-row items-center justify-between">
-          <Text className="text-2xl font-bold text-white">Reportar</Text>
-          <SyncBadge onDark />
-        </View>
-
+      {/* Solo identificación arriba: el vehículo debe dominar la pantalla. */}
+      <View className="bg-ink px-4 pb-3 pt-1">
         {vinValid && !vinManual ? (
           <Pressable
             onPress={() => setVinManual(true)}
-            className="min-h-[56px] flex-row items-center justify-between rounded-2xl border border-white/15 bg-white/10 px-4"
+            className="min-h-[60px] flex-row items-center justify-between rounded-2xl border border-synced/50 bg-synced/10 px-4 active:opacity-80"
           >
-            <View>
-              <Text className="text-label uppercase text-white/50">VIN</Text>
-              <Text className="font-mono text-base font-bold text-white">
-                {vin}
-              </Text>
+            <View className="flex-row items-center gap-3">
+              <View className="h-9 w-9 items-center justify-center rounded-xl bg-synced/20">
+                <CheckCircle2 color={COLORS.white} size={20} strokeWidth={2.4} />
+              </View>
+              <View>
+                <Text className="text-[10px] font-bold uppercase tracking-wide text-synced">VIN</Text>
+                <Text selectable className="font-mono text-base font-bold text-white">
+                  {vin}
+                </Text>
+              </View>
             </View>
-            <Text className="text-sm font-bold text-white/70">Cambiar</Text>
+            <View className="flex-row items-center gap-1.5">
+              <ScanLine color={COLORS.white} size={17} strokeWidth={2.3} />
+              <Text className="text-xs font-bold text-white">Cambiar</Text>
+            </View>
           </Pressable>
         ) : (
           <View>
             <View className="flex-row gap-2">
               <Pressable
                 onPress={openScanner}
-                className="min-h-[56px] flex-[2] flex-row items-center justify-center gap-2 rounded-2xl bg-primary active:opacity-80"
+                className="min-h-[64px] flex-[2] flex-row items-center justify-center gap-2 rounded-2xl bg-primary active:opacity-80"
               >
-                <ScanLine color={COLORS.white} size={20} strokeWidth={2} />
-                <Text className="text-base font-bold text-white">
+                <ScanLine color={COLORS.white} size={21} strokeWidth={2.2} />
+                <Text className="text-sm font-bold text-white">
                   Escanear VIN
                 </Text>
               </Pressable>
-              <View className="min-h-[56px] flex-[3] justify-center rounded-2xl border border-white/15 bg-white/10 px-4">
+              <View className="min-h-[64px] flex-[3] justify-center rounded-2xl border border-white/15 bg-white/10 px-6">
+                <Text className="mb-0.5 text-[10px] font-bold uppercase tracking-wide text-white/45">Manual</Text>
                 <TextInput
                   value={vin}
                   onChangeText={(text) => setVin(normalizeVin(text))}
                   autoCapitalize="characters"
-                  placeholder="o teclealo"
+                  placeholder="VIN"
                   placeholderTextColor="#8A97A8"
-                  className="font-mono text-base font-bold text-white"
+                  className="font-mono text-sm font-bold text-white"
                 />
               </View>
             </View>
@@ -217,47 +230,33 @@ export default function ReportarScreen() {
                     : "text-white/40"
               }`}
             >
-              {vin.length}/{VIN_LENGTH} caracteres
             </Text>
           </View>
         )}
 
-        {/* Contexto recordado: se toca solo si cambio */}
-        <View className="mt-3 flex-row gap-2">
-          <Pressable
-            onPress={() => {
-              setLaneDraft(lane);
-              setLaneEditor(true);
-            }}
-            className="min-h-[44px] flex-1 justify-center rounded-xl border border-white/15 px-3"
-          >
-            <Text className="text-label uppercase text-white/50">Carril</Text>
-            <Text className="text-sm font-bold text-white">
-              {lane.trim() || "Sin definir"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() =>
-              setMarket(
-                (prev) => MARKETS[(MARKETS.indexOf(prev) + 1) % MARKETS.length],
-              )
-            }
-            className="min-h-[44px] flex-1 justify-center rounded-xl border border-white/15 px-3"
-          >
-            <Text className="text-label uppercase text-white/50">Mercado</Text>
-            <Text className="text-sm font-bold text-white">{market}</Text>
-          </Pressable>
-        </View>
       </View>
+  
 
-      {/* 2. El esquema: donde se trabaja */}
-      <ScrollView contentContainerClassName="px-4 pb-64 pt-3">
-        <Text className="mb-1 text-label uppercase text-muted">
-          Toca la parte danada
-        </Text>
+      {/* El vehículo es el selector principal, no una lista larga. */}
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName={`w-full max-w-[1180px] self-center px-2 pt-2 ${
+          isWideLayout ? "pb-6" : defects.length > 0 || saved ? "pb-72" : "pb-6"
+        }`}
+      >
+        <View className="mb-2 flex-row items-center justify-between gap-3 px-2">
+          <View className="flex-1">
+            <Text className="text-base font-bold text-ink">Selecciona la zona dañada</Text>
+            <Text className="mt-0.5 text-xs text-muted">Toca el vehículo. Zonas amplias para usar con guantes.</Text>
+          </View>
+          <View className="min-w-[46px] items-center rounded-xl bg-ink px-2 py-1.5">
+            <Text className="text-base font-bold text-white">{defects.length}</Text>
+            <Text className="text-[8px] font-bold uppercase tracking-wide text-white/60">daños</Text>
+          </View>
+        </View>
 
-        <View className="rounded-3xl border border-line bg-surface p-3">
-          <View className="h-[420px] w-full">
+        <View className="overflow-hidden rounded-3xl border border-line bg-surface p-1.5" style={{ boxShadow: "0 2px 8px rgba(15, 22, 32, 0.05)" }}>
+          <View className="w-full rounded-[22px] bg-canvas px-1 py-1" style={{ height: isWideLayout ? 680 : 620 }}>
             <VehicleDiagram
               marks={marks}
               selectedZone={activeZone}
@@ -265,10 +264,49 @@ export default function ReportarScreen() {
             />
           </View>
         </View>
+         {/* Datos secundarios fuera de la cabecera: se usan solo si cambian. */}
+        <View className="mb-2 mt-5 flex-row items-center gap-2">
+          <ShieldCheck color={COLORS.muted} size={15} strokeWidth={2.2} />
+          <Text className="text-label font-bold uppercase text-muted">Datos del reporte</Text>
+        </View>
+        <View className="flex-row gap-2">
+          <Pressable
+            onPress={() => {
+              setLaneDraft(lane);
+              setLaneEditor(true);
+            }}
+            className="min-h-[58px] flex-1 rounded-2xl border border-line bg-surface px-3 py-2 active:bg-canvas"
+          >
+            <View className="flex-row items-center gap-1.5">
+              <MapPin color={COLORS.primary} size={14} strokeWidth={2.3} />
+              <Text className="text-label uppercase text-muted">Carril</Text>
+            </View>
+            <Text className="mt-1 text-sm font-bold text-ink">{lane.trim() || "Definir carril"}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              setMarket(
+                (prev) => MARKETS[(MARKETS.indexOf(prev) + 1) % MARKETS.length],
+              )
+            }
+            className="min-h-[58px] flex-1 rounded-2xl border border-line bg-surface px-3 py-2 active:bg-canvas"
+          >
+            <View className="flex-row items-center gap-1.5">
+              <Truck color={COLORS.primary} size={15} strokeWidth={2.2} />
+              <Text className="text-label uppercase text-muted">Mercado</Text>
+            </View>
+            <Text className="mt-1 text-sm font-bold text-ink" numberOfLines={1}>{market}</Text>
+          </Pressable>
+        </View>
 
-        <Text className="mb-2 mt-4 text-label uppercase text-muted">
-          No se ve desde arriba
-        </Text>
+        <View className="mb-2 mt-5 flex-row items-center justify-between">
+          
+          <View>
+            <Text className="text-label font-bold uppercase text-muted">Otras revisiones</Text>
+            <Text className="mt-0.5 text-xs text-muted">No aparecen en la vista superior</Text>
+          </View>
+          <CirclePlus color={COLORS.primary} size={21} strokeWidth={2.2} />
+        </View>
         <View className="flex-row flex-wrap gap-2">
           {OFF_DIAGRAM_ZONES.map((zone) => {
             const count = marks[zone.id]?.length ?? 0;
@@ -276,16 +314,17 @@ export default function ReportarScreen() {
               <Pressable
                 key={zone.id}
                 onPress={() => setActiveZone(zone.id)}
-                className={`min-h-[48px] flex-1 basis-[46%] flex-row items-center justify-center gap-2 rounded-2xl border-2 bg-surface ${
-                  count > 0 ? "border-ink" : "border-line"
+                className={`min-h-[60px] flex-1 basis-[46%] flex-row items-center justify-between rounded-2xl border bg-surface px-3 active:bg-canvas ${
+                  count > 0 ? "border-ink bg-ink/5" : "border-line"
                 }`}
               >
-                <Text className="text-base font-bold text-ink">
-                  {zone.label}
-                </Text>
+                <View className="flex-1 pr-2">
+                  <Text className="text-[10px] font-bold uppercase tracking-wide text-primary">{zone.code}</Text>
+                  <Text className="mt-0.5 text-sm font-bold text-ink" numberOfLines={1}>{zone.label}</Text>
+                </View>
                 {count > 0 ? (
-                  <View className="h-6 w-6 items-center justify-center rounded-full bg-ink">
-                    <Text className="text-xs font-bold text-white">
+                  <View className="h-7 min-w-[28px] items-center justify-center rounded-full bg-ink px-1.5">
+                    <Text className="text-[11px] font-bold text-white">
                       {count}
                     </Text>
                   </View>
@@ -297,23 +336,29 @@ export default function ReportarScreen() {
 
         {defects.length > 0 ? (
           <>
-            <Text className="mb-2 mt-5 text-label uppercase text-muted">
-              Danos capturados ({defects.length})
-            </Text>
+            <View className="mb-2 mt-5 flex-row items-center justify-between">
+              <View>
+                <Text className="text-label font-bold uppercase text-primary">Resumen del reporte</Text>
+                <Text className="mt-0.5 text-xs text-muted">Revisa o elimina un hallazgo antes de registrar</Text>
+              </View>
+              <View className="rounded-full bg-ink px-2.5 py-1">
+                <Text className="text-[11px] font-bold text-white">{defects.length} capturados</Text>
+              </View>
+            </View>
             {defects.map((defect) => (
               <View
                 key={defect.key}
-                className="mb-2 flex-row items-center gap-3 rounded-2xl border border-line bg-surface p-2"
+                className="mb-2 flex-row items-center gap-3 rounded-2xl border border-line bg-surface p-3"
               >
                 {/* La miniatura es la prueba de que la evidencia existe.
                     No todos los hallazgos la piden (p.ej. equipo faltante). */}
                 {defect.photoUri ? (
                   <Image
                     source={{ uri: defect.photoUri }}
-                    className="h-14 w-14 rounded-xl bg-canvas"
+                    className="h-14 w-14 rounded-2xl bg-canvas"
                   />
                 ) : (
-                  <View className="h-14 w-14 items-center justify-center rounded-xl bg-canvas">
+                  <View className="h-14 w-14 items-center justify-center rounded-2xl bg-canvas">
                     <Text className="text-[9px] font-semibold text-muted">
                       Sin foto
                     </Text>
@@ -339,25 +384,46 @@ export default function ReportarScreen() {
                 <Pressable
                   onPress={() => removeDefect(defect.key)}
                   hitSlop={10}
-                  className="min-h-[44px] justify-center px-3"
+                  className="min-h-[40px] justify-center rounded-xl bg-primary/10 px-3 active:bg-primary/15"
                 >
                   <Text className="text-sm font-bold text-primary">Quitar</Text>
                 </Pressable>
               </View>
             ))}
           </>
-        ) : null}
+        ) : (
+          <View className="mt-5 flex-row items-center gap-3 rounded-3xl border border-dashed border-line bg-surface px-4 py-4">
+            <View className="h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
+              <CirclePlus color={COLORS.primary} size={22} strokeWidth={2.2} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-bold text-ink">Aún no hay daños capturados</Text>
+              <Text className="mt-0.5 text-xs leading-5 text-muted">
+                Toca una zona para seleccionar el hallazgo y agregar evidencia.
+              </Text>
+            </View>
+          </View>
+        )}
       </ScrollView>
 
-      {/* 3. Dock: el guardado nunca se mueve de sitio */}
-      <View className="absolute bottom-[104px] left-0 right-0 border-t border-line bg-surface px-4 pb-6 pt-3">
+      {/* Paso final fijo: el operador siempre sabe cómo terminar el reporte. */}
+      {isWideLayout || defects.length > 0 || saved ? (
+      <View
+        className={`border-t border-line bg-surface px-4 pb-5 pt-3 ${
+          isWideLayout ? "" : "absolute bottom-[104px] left-0 right-0"
+        }`}
+        style={{ boxShadow: "0 -8px 18px rgba(15, 22, 32, 0.08)" }}
+      >
         {saved ? (
           <View className="mb-2 flex-row items-center gap-3 rounded-2xl bg-ink px-4 py-3">
+            <View className="h-10 w-10 items-center justify-center rounded-xl bg-white/10">
+              <CheckCircle2 color={COLORS.white} size={22} strokeWidth={2.4} />
+            </View>
             <View className="flex-1">
               <Text className="text-sm font-bold text-white">
                 Unidad guardada
               </Text>
-              <Text className="font-mono text-xs text-white/60">
+              <Text selectable className="font-mono text-xs text-white/60">
                 {saved.vin}
               </Text>
               {saved.photoCount > 0 ? (
@@ -379,26 +445,47 @@ export default function ReportarScreen() {
           </View>
         ) : null}
 
+        <View className="mb-2 flex-row items-center justify-between px-1">
+          <Text className="text-xs font-semibold text-muted">
+            {canSubmit
+              ? `${defects.length} daño${defects.length === 1 ? "" : "s"} listo${defects.length === 1 ? "" : "s"} para registrar`
+              : !vinValid
+                ? "Primero identifica la unidad"
+                : lane.trim().length === 0
+                  ? "Define el carril para continuar"
+                  : "Selecciona la zona y el hallazgo"}
+          </Text>
+          <Text className={`text-[11px] font-bold ${canSubmit ? "text-synced" : "text-muted"}`}>
+            Paso 3 de 3
+          </Text>
+        </View>
+
         <Pressable
           onPress={() => void handleSubmit()}
           disabled={!canSubmit}
-          className={`min-h-[60px] flex-row items-center justify-center gap-3 rounded-2xl ${
+          className={`min-h-[62px] flex-row items-center justify-center gap-3 rounded-2xl ${
             canSubmit ? "bg-synced active:opacity-80" : "bg-canvas"
           }`}
         >
+          <CheckCircle2
+            color={canSubmit ? COLORS.white : COLORS.muted}
+            size={23}
+            strokeWidth={2.4}
+          />
           <Text
             className={`text-lg font-bold ${canSubmit ? "text-white" : "text-muted"}`}
           >
             {canSubmit
               ? `Guardar unidad · ${defects.length} dano${defects.length === 1 ? "" : "s"}`
               : !vinValid
-                ? "Falta el VIN"
+                ? "Completa el VIN"
                 : lane.trim().length === 0
-                  ? "Falta el carril"
-                  : "Toca una parte del vehiculo"}
+                  ? "Completa el carril"
+                  : "Agrega un hallazgo"}
           </Text>
         </Pressable>
       </View>
+      ) : null}
 
       <DamageSheet
         zoneId={activeZone}

@@ -56,14 +56,28 @@ export async function pullAll(token: string): Promise<PullResult> {
   const pending = await pendingKeys();
   const result: PullResult = { fetched: 0, skippedPending: 0 };
 
-  for (const status of SYNCED_STATUSES) {
-    let batch: Unit[];
-    try {
-      batch = await unitsApi.listByStatus(status, token);
-    } catch {
-      // Sin red o error del servidor: se reintenta en el siguiente ciclo.
-      continue;
-    }
+  // Las peticiones salen TODAS a la vez. Son independientes entre si y su costo
+  // es latencia de red, no CPU: contra el backend desplegado cada una tarda
+  // ~300 ms, asi que en serie el ciclo completo medía ~4.4 s y en paralelo
+  // ~0.6 s. Esto corre en cada login, cada vuelta a primer plano y cada evento
+  // realtime, asi que era el retraso mas visible de toda la app.
+  const batches = await Promise.all(
+    SYNCED_STATUSES.map(async (status) => {
+      try {
+        return await unitsApi.listByStatus(status, token);
+      } catch {
+        // Sin red o error del servidor: se reintenta en el siguiente ciclo.
+        // Se devuelve null para no confundirlo con "el servidor no tiene nada".
+        return null;
+      }
+    })
+  );
+
+  // Las ESCRITURAS siguen en serie a proposito: `upsertFromServer` abre una
+  // transaccion en SQLite y varias simultaneas se bloquearian entre si. Lo que
+  // se paralelizo es la espera de red, que es donde estaba el tiempo.
+  for (const batch of batches) {
+    if (!batch) continue;
 
     const safe = batch.filter((unit) => {
       if (pending.ids.has(unit.id) || pending.vins.has(unit.vin)) {

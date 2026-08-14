@@ -12,6 +12,7 @@ import {
 } from '@/domain/permissions';
 import { ROLE_IDS } from '@/domain/constants';
 import { COLORS } from '@/ui/theme';
+import { TruckLoader } from '@/ui/TruckLoader';
 
 interface FloatingTabBarProps extends BottomTabBarProps {
   visibleTabs: ScreenName[];
@@ -218,8 +219,21 @@ function DesktopSidebar({
 
 /** Pestañas visibles y ordenadas según el rol autenticado. */
 export default function AppLayout() {
-  const { token, user } = useAuth();
+  const { token, user, isLoading } = useAuth();
   const { width } = useWindowDimensions();
+
+  // Mismo freno que dashboard.tsx y index.tsx: la sesion se restaura de forma
+  // asincrona, y este layout puede montar antes de que esa lectura termine
+  // (por ejemplo, al reabrir la app en frio ya en una pestana de /(app)).
+  // Sin esto, ese instante inicial con token=null expulsaba a /login aunque
+  // la sesion guardada fuera valida.
+  if (isLoading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-canvas">
+        <TruckLoader size={132} accessibilityLabel="Cargando sesión" />
+      </View>
+    );
+  }
 
   if (!token) return <Redirect href="/login" />;
 

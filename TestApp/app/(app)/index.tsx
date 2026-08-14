@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { ChevronRight, Database, LogOut } from 'lucide-react-native';
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useAuth } from '@/auth/AuthProvider';
-import { listByStatus } from '@/data/units';
+import { getPipelineCounts } from '@/data/stats';
 import { ROLE_IDS, ROLE_NAME_BY_ID, type RoleId, type UnitStatus } from '@/domain/constants';
 import {
   SCREEN_HINTS,
@@ -54,14 +54,7 @@ export default function PanelScreen() {
 
   const { data: counts } = useQuery<Partial<Record<UnitStatus, number>>>( {
     queryKey: ['pipeline'],
-    queryFn: async () => {
-      const entries = await Promise.all(
-        PIPELINE.map(
-          async ({ status }) => [status, (await listByStatus(status)).length] as const
-        )
-      );
-      return Object.fromEntries(entries) as Partial<Record<UnitStatus, number>>;
-    },
+    queryFn: getPipelineCounts,
     initialData: {},
     initialDataUpdatedAt: 0,
   });

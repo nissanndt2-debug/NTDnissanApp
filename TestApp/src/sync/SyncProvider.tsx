@@ -80,22 +80,32 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     try {
       do {
         rerunRequestedRef.current = false;
-        await drain(tokenRef.current);
-        await pullAll(tokenRef.current);
+        const drained = await drain(tokenRef.current);
+        const pulled = await pullAll(tokenRef.current);
         setLastPullAt(new Date());
-        // Los datos ya estan en SQLite; invalidar todas las vistas derivadas
-        // hace que un evento websocket actualice modulo, historial y KPI.
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['units'] }),
-          queryClient.invalidateQueries({ queryKey: ['pipeline'] }),
-          queryClient.invalidateQueries({ queryKey: ['stats'] }),
-          queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-          queryClient.invalidateQueries({ queryKey: ['history'] }),
-          queryClient.invalidateQueries({ queryKey: ['history-unit'] }),
-          queryClient.invalidateQueries({ queryKey: ['archivable'] }),
-          queryClient.invalidateQueries({ queryKey: ['deletion-requests'] }),
-        ]);
-        debug('cache invalidated after sync');
+
+        // Invalidar solo si algo cambio de verdad. Este ciclo corre al iniciar
+        // sesion, al reconectar, al volver a primer plano y en CADA evento
+        // realtime; invalidar siempre obligaba a todas las pantallas montadas
+        // a recalcularse aunque el servidor no trajera nada nuevo.
+        const changed = drained.sent > 0 || drained.failed > 0 || pulled.fetched > 0;
+        if (changed) {
+          // Los datos ya estan en SQLite; invalidar todas las vistas derivadas
+          // hace que un evento websocket actualice modulo, historial y KPI.
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['units'] }),
+            queryClient.invalidateQueries({ queryKey: ['pipeline'] }),
+            queryClient.invalidateQueries({ queryKey: ['stats'] }),
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+            queryClient.invalidateQueries({ queryKey: ['history'] }),
+            queryClient.invalidateQueries({ queryKey: ['history-unit'] }),
+            queryClient.invalidateQueries({ queryKey: ['archivable'] }),
+            queryClient.invalidateQueries({ queryKey: ['deletion-requests'] }),
+          ]);
+          debug('cache invalidated after sync');
+        } else {
+          debug('sync sin cambios: no se invalida cache');
+        }
       } while (rerunRequestedRef.current && tokenRef.current);
     } catch (error) {
       debug('sync failed', error instanceof Error ? error.message : error);

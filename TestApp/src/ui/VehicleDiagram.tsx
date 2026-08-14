@@ -147,21 +147,29 @@ export function VehicleDiagram({
       </Svg>
 
       {scale > 0
-        ? ZONES.map((zone) => (
-            <Pressable
-              key={zone.id}
-              onPress={() => onSelectZone(zone.id)}
-              accessibilityRole="button"
-              accessibilityLabel={zone.label}
-              style={{
-                position: 'absolute',
-                left: offsetX + zone.x * scale,
-                top: offsetY + zone.y * scale,
-                width: zone.w * scale,
-                height: zone.h * scale,
-              }}
-            />
-          ))
+        ? ZONES.map((zone) => {
+            // Las ruedas son zonas estrechas. Aumentamos únicamente su ancho
+            // táctil para poder usarlas con guantes sin invadir los paneles.
+            const visualWidth = zone.w * scale;
+            const hitWidth = zone.kind === 'wheel' ? Math.max(42, visualWidth) : visualWidth;
+            const hitLeft = offsetX + zone.x * scale - (hitWidth - visualWidth) / 2;
+
+            return (
+              <Pressable
+                key={zone.id}
+                onPress={() => onSelectZone(zone.id)}
+                accessibilityRole="button"
+                accessibilityLabel={zone.label}
+                style={{
+                  position: 'absolute',
+                  left: hitLeft,
+                  top: offsetY + zone.y * scale,
+                  width: hitWidth,
+                  height: zone.h * scale,
+                }}
+              />
+            );
+          })
         : null}
     </View>
   );

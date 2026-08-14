@@ -15,6 +15,7 @@ import { useNotificationStore } from '@/store/notificationStore';
 import { BarRow, DonutChart, KpiCard, Panel } from '@/ui/Charts';
 import { NotificationBell } from '@/ui/NotificationBell';
 import { COLORS, GRADE_COLOR as DONUT_GRADE_COLOR } from '@/ui/theme';
+import { TruckLoader } from '@/ui/TruckLoader';
 
 /**
  * Dashboard analitico del ADMIN. Solo web y solo rol ADMIN.
@@ -49,7 +50,7 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 export default function DashboardScreen() {
-  const { user, token, signOut } = useAuth();
+  const { user, token, isLoading, signOut } = useAuth();
   const { online, pending, lastPullAt, syncNow, syncing } = useSync();
   const { width } = useWindowDimensions();
   const liveConnected = useNotificationStore((state) => state.connected);
@@ -79,6 +80,20 @@ export default function DashboardScreen() {
     queryFn: () => dashboardApi.repairTimeByModel(token!),
     enabled: Boolean(token),
   });
+
+  // La sesion se restaura de forma asincrona (SecureStore/sessionStorage):
+  // al recargar la pagina en /dashboard, este componente monta ANTES de que
+  // esa lectura termine, con `token` todavia en null por el estado inicial.
+  // Sin este freno, ese instante se leia como "no hay sesion" y mandaba a
+  // /login aunque el token si estuviera guardado — el sintoma exacto de
+  // "cada F5 me saca". El mismo freno ya existe en app/index.tsx.
+  if (isLoading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-canvas">
+        <TruckLoader size={132} accessibilityLabel="Cargando sesión" />
+      </View>
+    );
+  }
 
   if (!token) return <Redirect href="/login" />;
 
